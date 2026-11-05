@@ -13,6 +13,8 @@ DEFAULT_VERSION = "1.21.4"
 NAV = [("play", "Главная"), ("stats", "Статистика"), ("accounts", "Аккаунты"), ("versions", "Версии"),
        ("mods", "Моды"), ("settings", "Настройки")]
 
+LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
+
 BG = "#0d0d0d"
 SIDE = "#121212"
 PANEL = "#171717"
@@ -555,12 +557,17 @@ class App(tk.Tk):
         self.settings.setdefault("snapshots", False)
         self.settings.setdefault("account", None)
         self.settings.setdefault("java", "")
+        self.settings.setdefault("loader", "vanilla")
         self.accounts = load_json(ACCOUNTS_FILE, [])
 
         self.ram_var = tk.IntVar(value=self.settings["ram"])
         self.version_cache = None
         self.visible_versions = []
         self.java_cache = None
+        self.loader_cache = {}
+        self.loader_tab = self.settings["loader"]
+        self.game_running = False
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.current = None
         self.page = None
         self.outgoing = None
@@ -656,9 +663,12 @@ class App(tk.Tk):
         def run():
             try:
                 fn()
-            except tk.TclError:
+            except (tk.TclError, RuntimeError):
                 pass
-        self.after(0, run)
+        try:
+            self.after(0, run)
+        except (tk.TclError, RuntimeError):
+            pass
 
     def set_status(self, text):
         self.ui(lambda: self.status.config(text=text))
@@ -686,7 +696,7 @@ class App(tk.Tk):
                  font=(FONT, 15, "bold")).pack(anchor="w")
         Btn(row, "Сменить", lambda: self.show_page("accounts"), style="ghost", bg=PANEL,
             h=30, size=9).pack(side="right", padx=(8, 0))
-        Btn(row, self.settings["version"], lambda: self.show_page("versions"), style="soft",
+        Btn(row, self.version_label(), lambda: self.show_page("versions"), style="soft",
             bg=PANEL, h=30, size=9).pack(side="right")
 
         ram = Panel(p)
@@ -829,16 +839,23 @@ class App(tk.Tk):
         self.show_page("accounts", animate=False)
 
     # ---------- Версии ----------
+    def version_label(self):
+        return f"{LOADER_NAMES.get(self.settings.get('loader', 'vanilla'), 'Vanilla')} {self.settings['version']}"
+
     def page_versions(self, p):
-        self.heading(p, "Версии", "Релизы Minecraft с серверов Mojang")
-        top = Panel(p)
-        top.pack(fill="x")
-        tk.Label(top.inner, text=f"Выбрано: {self.settings['version']}", bg=PANEL, fg=TEXT,
-                 font=(FONT, 12, "bold")).pack(side="left")
-        self.snap_var = tk.BooleanVar(value=self.settings["snapshots"])
-        Toggle(top.inner, self.snap_var, cmd=self.on_snapshots_toggle, bg=PANEL).pack(side="right")
-        tk.Label(top.inner, text="Снапшоты", bg=PANEL, fg=GREY,
-                 font=(FONT, 9)).pack(side="right", padx=8)
+        self.heading(p, "Версии", "Vanilla, Fabric и Forge для Minecraft")
+        tabs = Panel(p)
+        tabs.pack(fill="x")
+        row = tk.Frame(tabs.inner, bg=PANEL)
+        row.pack(fill="x")
+        for key, name in LOADER_NAMES.items():
+            Btn(row, name, lambda k=key: self.set_loader_tab(k),
+                style="soft" if key == self.loader_tab else "ghost",
+                bg=PANEL, h=30, size=9).pack(side="left", padx=(0, 6))
+        if self.loader_tab == "vanilla":
+            self.snap_var = tk.BooleanVar(value=self.settings["snapshots"])
+            tk.Label(row, text="Снапшоты", bg=PANEL, fg=GREY, font=(FONT, 9)).pack(side="right", padx=6)
+            Toggle(row, self.snap_var, cmd=self.on_snapshots_toggle, bg=PANEL).pack(side="right")
 
         lp = Panel(p)
         lp.pack(fill="x", pady=(10, 0))
@@ -850,18 +867,33 @@ class App(tk.Tk):
         self.version_list.pack(fill="x", pady=6)
         Btn(lp.inner, "Выбрать версию", self.choose_version, style="primary", h=34).pack(anchor="e")
 
-        if self.version_cache is None:
-            self.load_versions()
-        else:
+        if self.loader_tab in self.loader_cache:
             self.fill_versions()
+        else:
+            self.load_loader_list(self.loader_tab)
 
-    def load_versions(self):
-        self.set_version_status("Загрузка списка версий...")
+    def set_loader_tab(self, loader):
+        self.loader_tab = loader
+        self.show_page("versions", animate=False)
+
+    def load_loader_list(self, loader):
+        self.set_version_status("Загрузка списка...")
 
         def work():
             try:
-                versions = mll.utils.get_version_list()
-                self.ui(lambda: self.on_versions_loaded(versions))
+                if loader == "vanilla":
+                    items = [(v["id"], v["type"]) for v in mll.utils.get_version_list()]
+                elif loader == "fabric":
+                    items = [(v, "release") for v in mll.fabric.get_stable_minecraft_versions()]
+                else:
+                    seen = []
+                    for v in mll.forge.list_forge_versions():
+                        mc = v.split("-")[0]
+                        if mc not in seen:
+                            seen.append(mc)
+                    items = [(v, "release") for v in reversed(seen)]
+                self.loader_cache[loader] = items
+                self.ui(lambda: self.on_loader_list(loader))
             except Exception as e:
                 self.ui(lambda: self.set_version_status(f"Не удалось загрузить список: {e}"))
         threading.Thread(target=work, daemon=True).start()
@@ -869,17 +901,18 @@ class App(tk.Tk):
     def set_version_status(self, text):
         self.ui(lambda: self.version_status.config(text=text))
 
-    def on_versions_loaded(self, versions):
-        self.version_cache = versions
-        self.fill_versions()
+    def on_loader_list(self, loader):
+        if loader == self.loader_tab:
+            self.fill_versions()
 
     def fill_versions(self):
-        allowed = {"release", "snapshot"} if self.settings["snapshots"] else {"release"}
-        self.visible_versions = [v["id"] for v in self.version_cache if v["type"] in allowed]
+        items = self.loader_cache.get(self.loader_tab, [])
+        snap = self.loader_tab == "vanilla" and self.settings["snapshots"]
+        self.visible_versions = [i for i, t in items if t == "release" or (snap and t == "snapshot")]
         self.version_list.delete(0, "end")
         for vid in self.visible_versions:
             self.version_list.insert("end", vid)
-        if self.settings["version"] in self.visible_versions:
+        if self.settings.get("loader") == self.loader_tab and self.settings["version"] in self.visible_versions:
             idx = self.visible_versions.index(self.settings["version"])
             self.version_list.selection_set(idx)
             self.version_list.see(idx)
@@ -888,13 +921,14 @@ class App(tk.Tk):
     def on_snapshots_toggle(self):
         self.settings["snapshots"] = self.snap_var.get()
         save_json(CONFIG_FILE, self.settings)
-        if self.version_cache is not None:
+        if self.loader_tab in self.loader_cache:
             self.fill_versions()
 
     def choose_version(self):
         sel = self.version_list.curselection()
         if not sel:
             return messagebox.showwarning("Ошибка", "Выбери версию в списке")
+        self.settings["loader"] = self.loader_tab
         self.settings["version"] = self.visible_versions[sel[0]]
         self.save_settings()
         self.show_page("play", animate=False)
@@ -1055,6 +1089,19 @@ class App(tk.Tk):
             tk.Label(info, text=key, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
             tk.Label(r, text=fmt_hours(seconds), bg=PANEL, fg=RED, font=(FONT, 11, "bold")).pack(side="right", padx=10)
 
+    def on_close(self):
+        if self.game_running:
+            close_all = messagebox.askyesno(
+                "Лаунчер",
+                "Игра запущена. Закрыть лаунчер полностью?\n\n"
+                "Да — закрыть. Игра продолжит работать, но логи при вылете не покажутся.\n"
+                "Нет — свернуть лаунчер в фон.")
+            if not close_all:
+                self.withdraw()
+                return
+        self.destroy()
+        os._exit(0)
+
     # ---------- Вылет / закрытие игры ----------
     def on_game_exit(self, code, root, version, started):
         self.deiconify()
@@ -1187,10 +1234,40 @@ class App(tk.Tk):
             return self.show_page("accounts")
         self.save_settings()
         threading.Thread(target=self._launch,
-                         args=(acc, self.settings["root"], self.settings["version"], self.ram_var.get()),
+                         args=(acc, self.settings["root"], self.settings["version"], self.ram_var.get(),
+                               self.settings.get("loader", "vanilla")),
                          daemon=True).start()
 
-    def _launch(self, acc, root, version, ram):
+    def find_installed(self, root, pred):
+        ids = [v["id"] for v in mll.utils.get_installed_versions(root)]
+        matches = [i for i in ids if pred(i)]
+        return matches[-1] if matches else None
+
+    def ensure_fabric(self, root, mc, cb, java):
+        def is_fabric(i):
+            return i.startswith("fabric-loader") and i.endswith("-" + mc)
+        found = self.find_installed(root, is_fabric)
+        if found:
+            return found
+        self.set_status("Установка Fabric...")
+        mll.fabric.install_fabric(mc, root, callback=cb, java=java)
+        found = self.find_installed(root, is_fabric)
+        if not found:
+            raise RuntimeError("Fabric не установился. Попробуй ещё раз или выбери другую версию.")
+        return found
+
+    def ensure_forge(self, root, mc, cb, java):
+        forge_ver = mll.forge.find_forge_version(mc)
+        if not forge_ver:
+            raise RuntimeError(f"Для Minecraft {mc} не найдено Forge.")
+        installed_id = mll.forge.forge_to_installed_version(forge_ver)
+        if self.find_installed(root, lambda i: i == installed_id):
+            return installed_id
+        self.set_status("Установка Forge...")
+        mll.forge.install_forge_version(forge_ver, root, callback=cb, java=java)
+        return installed_id
+
+    def _launch(self, acc, root, version, ram, loader):
         try:
             os.makedirs(root, exist_ok=True)
             java = self.resolve_java()
@@ -1199,23 +1276,27 @@ class App(tk.Tk):
                 raise RuntimeError(f"Для Minecraft {version} нужна Java 21 или новее. "
                                    f"Сейчас используется: {java} (версия {major}). "
                                    f"Укажи подходящую Java в Настройки → Java.")
-            installed = [v["id"] for v in mll.utils.get_installed_versions(root)]
-            if version not in installed:
-                state = {"max": 1}
+            state = {"max": 1}
 
-                def set_max(v):
-                    state["max"] = max(1, v)
+            def set_max(v):
+                state["max"] = max(1, v)
 
-                def set_prog(v):
-                    self.ui(lambda: self.progress.set(v / state["max"]))
+            def set_prog(v):
+                self.ui(lambda: self.progress.set(v / state["max"]))
 
+            cb = {"setStatus": self.set_status, "setProgress": set_prog, "setMax": set_max}
+
+            if not self.find_installed(root, lambda i: i == version):
                 self.set_status(f"Загрузка Minecraft {version}...")
-                mll.install.install_minecraft_version(version, root, callback={
-                    "setStatus": self.set_status,
-                    "setProgress": set_prog,
-                    "setMax": set_max,
-                })
-                self.ui(lambda: self.progress.set(0))
+                mll.install.install_minecraft_version(version, root, callback=cb)
+
+            target = version
+            if loader == "fabric":
+                target = self.ensure_fabric(root, version, cb, java)
+            elif loader == "forge":
+                target = self.ensure_forge(root, version, cb, java)
+            self.ui(lambda: self.progress.set(0))
+
             options = {
                 "username": acc["name"],
                 "uuid": acc["uuid"],
@@ -1225,12 +1306,14 @@ class App(tk.Tk):
                 "executablePath": java,
             }
             self.set_status("Запуск игры...")
-            command = mll.command.get_minecraft_command(version, root, options)
+            command = mll.command.get_minecraft_command(target, root, options)
             started = time.time()
             proc = subprocess.Popen(command, cwd=root)
-            self.set_status(f"Minecraft {version} запущен")
+            self.set_status(f"{LOADER_NAMES.get(loader, 'Vanilla')} {version} запущен")
             self.ui(self.withdraw)
+            self.game_running = True
             code = self.monitor_game(proc, root)
+            self.game_running = False
             self.ui(lambda: self.on_game_exit(code, root, version, started))
         except Exception as e:
             self.set_status("Ошибка запуска")
