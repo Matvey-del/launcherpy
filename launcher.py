@@ -150,10 +150,15 @@ def latest_crash_report(root, started):
 
 def build_log_text(root, started):
     parts = []
+    out_path = os.path.join(root, "logs", "launcher_output.log")
+    if os.path.isfile(out_path) and os.path.getmtime(out_path) >= started - 5:
+        parts.append("=== Вывод Java (launcher_output.log) ===\n" + read_tail(out_path, 400))
     crash = latest_crash_report(root, started)
     if crash:
         parts.append("=== Crash report: " + os.path.basename(crash) + " ===\n" + read_tail(crash, 400))
-    parts.append("=== logs/latest.log ===\n" + read_tail(os.path.join(root, "logs", "latest.log"), 200))
+    latest = os.path.join(root, "logs", "latest.log")
+    if os.path.isfile(latest) and os.path.getmtime(latest) >= started - 5:
+        parts.append("=== logs/latest.log ===\n" + read_tail(latest, 200))
     return "\n".join(parts)
 
 
@@ -1316,7 +1321,17 @@ class App(tk.Tk):
             self.set_status("Запуск игры...")
             command = mll.command.get_minecraft_command(target, root, options)
             started = time.time()
-            proc = subprocess.Popen(command, cwd=root)
+            logs_dir = os.path.join(root, "logs")
+            os.makedirs(logs_dir, exist_ok=True)
+            out_path = os.path.join(logs_dir, "launcher_output.log")
+            with open(out_path, "w", encoding="utf-8", errors="replace") as out:
+                out.write(f"Java: {java} (версия {major})\n")
+                out.write(f"Версия: {target}\n")
+                out.write("Команда: " + " ".join(str(c) for c in command) + "\n\n")
+                out.flush()
+                proc = subprocess.Popen(command, cwd=root, stdout=out, stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL,
+                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.set_status(f"{LOADER_NAMES.get(loader, 'Vanilla')} {version} запущен")
             self.ui(self.withdraw)
             self.game_running = True
