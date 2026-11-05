@@ -269,6 +269,42 @@ def fmt_hours(seconds):
     return f"{h} ч {m} мин"
 
 
+def dedupe_version_libraries(root, version_id):
+    """Убирает дубли библиотек в json версии (например, два asm разных версий).
+    Fabric падает с 'duplicate ASM classes', если в classpath попали обе."""
+    path = os.path.join(root, "versions", version_id, version_id + ".json")
+    data = load_json(path, None)
+    if not data or not isinstance(data.get("libraries"), list):
+        return
+
+    def ver_key(v):
+        return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-+]", v))
+
+    def lib_key(name):
+        parts = name.split(":")
+        if len(parts) < 3:
+            return None, None
+        key = (parts[0], parts[1], parts[3] if len(parts) > 3 else "")
+        return key, parts[2]
+
+    libs = data["libraries"]
+    best = {}
+    for lib in libs:
+        key, ver = lib_key(lib.get("name", ""))
+        if key is None:
+            continue
+        if key not in best or ver_key(ver) > ver_key(best[key]):
+            best[key] = ver
+    kept = []
+    for lib in libs:
+        key, ver = lib_key(lib.get("name", ""))
+        if key is None or ver == best[key]:
+            kept.append(lib)
+    if len(kept) != len(libs):
+        data["libraries"] = kept
+        save_json(path, data)
+
+
 def lerp(a, b, t):
     ra, ga, ba = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
     rb, gb, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
@@ -1260,13 +1296,13 @@ class App(tk.Tk):
         def is_fabric(i):
             return i.startswith("fabric-loader") and i.endswith("-" + mc)
         found = self.find_installed(root, is_fabric)
-        if found:
-            return found
-        self.set_status("Установка Fabric...")
-        mll.fabric.install_fabric(mc, root, callback=cb, java=java)
-        found = self.find_installed(root, is_fabric)
+        if not found:
+            self.set_status("Установка Fabric...")
+            mll.fabric.install_fabric(mc, root, callback=cb, java=java)
+            found = self.find_installed(root, is_fabric)
         if not found:
             raise RuntimeError("Fabric не установился. Попробуй ещё раз или выбери другую версию.")
+        dedupe_version_libraries(root, found)
         return found
 
     def ensure_forge(self, root, mc, cb, java):
