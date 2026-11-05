@@ -1,4 +1,4 @@
-import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct
+import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct, zipfile
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
@@ -11,7 +11,7 @@ STATS_FILE = os.path.join(APP_DIR, "stats.json")
 DEFAULT_ROOT = os.path.join(APP_DIR, "game")
 DEFAULT_VERSION = "1.21.4"
 NAV = [("play", "Главная"), ("stats", "Статистика"), ("accounts", "Аккаунты"), ("versions", "Версии"),
-       ("mods", "Моды"), ("settings", "Настройки")]
+       ("mods", "Моды"), ("doctor", "Диагностика"), ("settings", "Настройки")]
 
 LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
 
@@ -301,8 +301,48 @@ def dedupe_version_libraries(root, version_id):
         if key is None or ver == best[key]:
             kept.append(lib)
     if len(kept) != len(libs):
+        backup = path + ".redlauncher.bak"
+        if not os.path.exists(backup):
+            shutil.copy2(path, backup)
         data["libraries"] = kept
         save_json(path, data)
+
+
+
+def _version_tuple(value):
+    nums = re.findall(r"\d+", value or "")
+    return tuple(int(x) for x in nums) if nums else (0,)
+
+
+def sanitize_asm_classpath(command):
+    """Удаляет конфликтующие версии одного ASM-артефакта из аргумента -cp."""
+    cmd = list(command)
+    try:
+        cp_index = next(i for i, arg in enumerate(cmd) if arg in ("-cp", "-classpath", "--class-path"))
+        raw_cp = cmd[cp_index + 1]
+    except (StopIteration, IndexError):
+        return cmd, []
+    entries = raw_cp.split(os.pathsep)
+    chosen, removed = {}, []
+    for entry in entries:
+        norm = entry.replace("\\", "/")
+        match = re.search(r"/org/ow2/asm/([^/]+)/([^/]+)/\1-([^/]+)\.jar$", norm, re.I)
+        if not match:
+            continue
+        artifact, folder_version, filename_version = match.groups()
+        key = artifact.lower()
+        version = filename_version or folder_version
+        current = chosen.get(key)
+        if current is None or _version_tuple(version) > _version_tuple(current[0]):
+            if current is not None:
+                removed.append(current[1])
+            chosen[key] = (version, entry)
+        else:
+            removed.append(entry)
+    if removed:
+        kept = [e for e in entries if e not in removed]
+        cmd[cp_index + 1] = os.pathsep.join(kept)
+    return cmd, removed
 
 
 def lerp(a, b, t):
@@ -595,20 +635,22 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("RED LAUNCHER")
-        self.geometry("840x600")
-        self.minsize(840, 600)
+        self.geometry("960x680")
+        self.minsize(900, 640)
         self.configure(bg=BG)
 
         self.settings = load_json(CONFIG_FILE, {})
         self.settings.setdefault("root", DEFAULT_ROOT)
         self.settings.setdefault("version", DEFAULT_VERSION)
-        self.settings.setdefault("ram", 4096)
+        self.settings.setdefault("ram", min(2048, max(1024, total_ram_mb() - 1536)))
         self.settings.setdefault("snapshots", False)
         self.settings.setdefault("account", None)
         self.settings.setdefault("java", "")
         self.settings.setdefault("loader", "vanilla")
         self.accounts = load_json(ACCOUNTS_FILE, [])
 
+        ram_limit = max(1024, min(4096, total_ram_mb() - 1024))
+        self.settings["ram"] = max(1024, min(int(self.settings.get("ram", 2048)), ram_limit))
         self.ram_var = tk.IntVar(value=self.settings["ram"])
         self.version_cache = None
         self.visible_versions = []
@@ -616,6 +658,7 @@ class App(tk.Tk):
         self.loader_cache = {}
         self.loader_tab = self.settings["loader"]
         self.game_running = False
+        self.launching = False
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.current = None
         self.page = None
@@ -623,26 +666,26 @@ class App(tk.Tk):
         self.slide_job = None
         self.builders = {"play": self.page_play, "stats": self.page_stats, "accounts": self.page_accounts,
                          "versions": self.page_versions, "mods": self.page_mods,
-                         "settings": self.page_settings}
+                         "settings": self.page_settings, "doctor": self.page_doctor}
         self.build_shell()
         self.show_page("play", animate=False)
 
     # ---------- оболочка ----------
     def build_shell(self):
-        side = tk.Frame(self, bg=SIDE, width=200)
+        side = tk.Frame(self, bg=SIDE, width=216)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
-        logo = tk.Canvas(side, width=200, height=96, bg=SIDE, highlightthickness=0, bd=0)
+        logo = tk.Canvas(side, width=216, height=108, bg=SIDE, highlightthickness=0, bd=0)
         logo.pack(fill="x")
-        logo.create_text(26, 40, text="RED", anchor="w", fill=RED, font=(FONT, 26, "bold"))
-        logo.create_text(28, 66, text="LAUNCHER", anchor="w", fill=GREY, font=(FONT, 9, "bold"))
+        logo.create_text(26, 42, text="RED", anchor="w", fill=RED, font=(FONT, 26, "bold"))
+        logo.create_text(28, 70, text="LAUNCHER", anchor="w", fill=GREY, font=(FONT, 9, "bold"))
 
         nav_box = tk.Frame(side, bg=SIDE)
-        nav_box.pack(fill="x", padx=12)
+        nav_box.pack(fill="x", padx=14, pady=(4, 0))
         self.nav = {}
         for key, title in NAV:
             b = Btn(nav_box, title, lambda k=key: self.show_page(k), style="nav", bg=SIDE,
-                    size=11, h=40, width=176, stretch=True, align="w")
+                    size=11, h=40, width=188, stretch=True, align="w")
             b.pack(fill="x", pady=3)
             self.nav[key] = b
         tk.Label(side, text=f"Minecraft {self.settings['version']}", bg=SIDE,
@@ -650,8 +693,16 @@ class App(tk.Tk):
 
         main = tk.Frame(self, bg=BG)
         main.pack(side="left", fill="both", expand=True)
+        topbar = tk.Frame(main, bg=BG, height=42)
+        topbar.pack(fill="x", padx=30, pady=(16, 0))
+        topbar.pack_propagate(False)
+        tk.Label(topbar, text="RED  /  CONTROL CENTER", bg=BG, fg=GREY,
+                 font=(FONT, 9, "bold")).pack(side="left", anchor="center")
+        tk.Label(topbar, text="BUILD 2.0", bg=RED_DARK, fg=TEXT,
+                 font=(FONT, 8, "bold"), padx=10, pady=4).pack(side="right", anchor="center")
+        tk.Frame(main, bg=RED_DARK, height=1).pack(fill="x", padx=30, pady=(0, 8))
         self.stage = tk.Frame(main, bg=BG)
-        self.stage.pack(fill="both", expand=True, padx=26, pady=22)
+        self.stage.pack(fill="both", expand=True, padx=30, pady=(12, 26))
 
     def show_page(self, key, animate=True):
         for k, b in self.nav.items():
@@ -756,7 +807,7 @@ class App(tk.Tk):
                  font=(FONT, 10, "bold")).pack(side="left")
         self.ram_label = tk.Label(top, text="", bg=PANEL, fg=RED, font=(FONT, 10, "bold"))
         self.ram_label.pack(side="right")
-        max_ram = max(2048, total_ram_mb() - 1024)
+        max_ram = max(1024, min(4096, total_ram_mb() - 1024))
         Slider(ram.inner, self.ram_var, 1024, max_ram, 512,
                cmd=self.update_ram_label, bg=PANEL).pack(fill="x", pady=(8, 0))
         self.update_ram_label()
@@ -1037,6 +1088,115 @@ class App(tk.Tk):
         shutil.copy(path, os.path.join(mods_dir, os.path.basename(path)))
         self.show_page("mods", animate=False)
 
+    # ---------- Диагностика модов ----------
+    def page_doctor(self, p):
+        self.heading(p, "Диагностика", "Проверка сборки Minecraft и автоматический поиск конфликтов")
+        root = self.settings["root"]
+        mods_dir, _ = self.mod_dirs()
+        top = Panel(p)
+        top.pack(fill="x", pady=(0, 8))
+        tk.Label(top.inner, text="MOD DOCTOR", bg=PANEL, fg=RED,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
+        tk.Label(top.inner, text="Проверяет JAR-файлы, повторяющиеся mod ID и несовпадение версии Minecraft.",
+                 bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 10))
+        Btn(top.inner, "ПРОВЕРИТЬ МОДЫ", self.run_mod_doctor, style="primary", h=36).pack(anchor="w")
+        repair = Panel(p)
+        repair.pack(fill="x", pady=4)
+        tk.Label(repair.inner, text="Ремонт Fabric / ASM", bg=PANEL, fg=TEXT,
+                 font=(FONT, 11, "bold")).pack(anchor="w")
+        tk.Label(repair.inner, text="Удаляет дубли одной и той же библиотеки ASM из JSON профиля Fabric. Перед изменением создаётся резервная копия.",
+                 bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 8))
+        Btn(repair.inner, "ИСПРАВИТЬ ASM", self.repair_asm, style="soft", h=34).pack(anchor="w")
+        self.doctor_output = tk.Text(p, height=12, bg=FIELD, fg=TEXT, insertbackground=RED,
+                                     relief="flat", bd=0, highlightthickness=1,
+                                     highlightbackground=LINE, font=("Consolas", 9), wrap="word")
+        self.doctor_output.pack(fill="both", expand=True, pady=(8, 0))
+        self.doctor_output.insert("1.0", "Готов к диагностике. Нажми «Проверить моды».\n")
+        self.doctor_output.config(state="disabled")
+
+    def _doctor_report(self, content):
+        if not hasattr(self, "doctor_output") or not alive(self.doctor_output):
+            return
+        self.doctor_output.config(state="normal")
+        self.doctor_output.delete("1.0", "end")
+        self.doctor_output.insert("1.0", content)
+        self.doctor_output.config(state="disabled")
+
+    def run_mod_doctor(self):
+        mods_dir, dis_dir = self.mod_dirs()
+        os.makedirs(mods_dir, exist_ok=True)
+        os.makedirs(dis_dir, exist_ok=True)
+        rows, ids, bad = [], {}, []
+        for folder, enabled in ((mods_dir, True), (dis_dir, False)):
+            for filename in sorted(os.listdir(folder)):
+                if not filename.lower().endswith(".jar"):
+                    continue
+                path = os.path.join(folder, filename)
+                try:
+                    with zipfile.ZipFile(path, "r") as jar:
+                        names = set(jar.namelist())
+                        metadata = None
+                        modid = None
+                        if "fabric.mod.json" in names:
+                            metadata = json.loads(jar.read("fabric.mod.json").decode("utf-8"))
+                            modid = metadata.get("id")
+                            env = metadata.get("environment", "*")
+                            if env == "server":
+                                bad.append("Только серверный мод: " + filename)
+                        elif "META-INF/mods.toml" in names:
+                            raw = jar.read("META-INF/mods.toml").decode("utf-8", "replace")
+                            match = re.search(r"(?m)^modId\s*=\s*[\'\"]([^\'\"]+)", raw)
+                            modid = match.group(1) if match else None
+                        elif "mcmod.info" in names:
+                            raw = jar.read("mcmod.info").decode("utf-8", "replace")
+                            try:
+                                data = json.loads(raw)
+                                if isinstance(data, list) and data:
+                                    modid = data[0].get("modid")
+                            except Exception:
+                                pass
+                        if modid and enabled:
+                            ids.setdefault(modid.lower(), []).append(filename)
+                        rows.append(("%s  %s" % ("ON " if enabled else "OFF", filename), modid))
+                except Exception as exc:
+                    bad.append("Повреждённый JAR: %s (%s)" % (filename, exc))
+        report = ["RED LAUNCHER · MOD DOCTOR", "Папка: " + mods_dir,
+                  "Найдено JAR: %d (включено %d, отключено %d)" %
+                  (len(rows), sum(1 for x in rows if x[0].startswith("ON ")),
+                   sum(1 for x in rows if x[0].startswith("OFF "))), ""]
+        report.extend("%s%s" % (name, ("  [id: " + modid + "]") if modid else "") for name, modid in rows)
+        duplicates = [(mid, files) for mid, files in ids.items() if len(files) > 1]
+        if duplicates:
+            report.extend(["", "КОНФЛИКТЫ:"])
+            report.extend("Повторный mod ID '%s': %s" % (mid, ", ".join(files)) for mid, files in duplicates)
+        if bad:
+            report.extend(["", "ПРЕДУПРЕЖДЕНИЯ:"] + bad)
+        if not duplicates and not bad:
+            report.extend(["", "Критичных проблем по метаданным не найдено."])
+        report.extend(["", "Важно: совместимость по версии игры и зависимостям зависит от метаданных мода;",
+                       "сканер не гарантирует отсутствие всех конфликтов."])
+        self._doctor_report("\n".join(report))
+
+    def repair_asm(self):
+        root = self.settings["root"]
+        version_id = self.find_installed(root, lambda i: i.startswith("fabric-loader") and i.endswith("-" + self.settings["version"]))
+        if not version_id:
+            return messagebox.showinfo("Fabric", "Профиль Fabric для выбранной версии ещё не установлен.")
+        path = os.path.join(root, "versions", version_id, version_id + ".json")
+        data = load_json(path, None)
+        if not data or not isinstance(data.get("libraries"), list):
+            return messagebox.showerror("Ошибка", "Не удалось прочитать JSON профиля Fabric.")
+        before = len(data["libraries"])
+        dedupe_version_libraries(root, version_id)
+        data = load_json(path, data)
+        removed = before - len(data.get("libraries", []))
+        if removed:
+            messagebox.showinfo("Готово", "Удалено дублирующихся записей библиотек: %d" % removed)
+        else:
+            messagebox.showinfo("Проверка завершена", "Дубли в JSON профиля не найдены. При запуске также будет очищаться classpath.")
+        self._doctor_report("Профиль: %s\nБиблиотек до: %d\nБиблиотек после: %d\nУдалено: %d" %
+                            (version_id, before, len(data.get("libraries", [])), removed))
+
     # ---------- Настройки ----------
     def page_settings(self, p):
         self.heading(p, "Настройки", "Папки и данные лаунчера")
@@ -1277,11 +1437,15 @@ class App(tk.Tk):
 
     # ---------- Запуск ----------
     def start_game(self):
+        if self.launching or self.game_running:
+            messagebox.showinfo("RED LAUNCHER", "Minecraft уже запускается или работает.")
+            return
         acc = self.current_account()
         if not acc:
             messagebox.showwarning("Нет аккаунта", "Сначала выбери аккаунт")
             return self.show_page("accounts")
         self.save_settings()
+        self.launching = True
         threading.Thread(target=self._launch,
                          args=(acc, self.settings["root"], self.settings["version"], self.ram_var.get(),
                                self.settings.get("loader", "vanilla")),
@@ -1356,6 +1520,7 @@ class App(tk.Tk):
             }
             self.set_status("Запуск игры...")
             command = mll.command.get_minecraft_command(target, root, options)
+            command, removed_asm = sanitize_asm_classpath(command)
             started = time.time()
             logs_dir = os.path.join(root, "logs")
             os.makedirs(logs_dir, exist_ok=True)
@@ -1363,11 +1528,16 @@ class App(tk.Tk):
             with open(out_path, "w", encoding="utf-8", errors="replace") as out:
                 out.write(f"Java: {java} (версия {major})\n")
                 out.write(f"Версия: {target}\n")
+                if removed_asm:
+                    out.write("Исправление classpath: удалены дубли ASM:\n")
+                    for jar_path in removed_asm:
+                        out.write("  - " + jar_path + "\n")
                 out.write("Команда: " + " ".join(str(c) for c in command) + "\n\n")
                 out.flush()
                 proc = subprocess.Popen(command, cwd=root, stdout=out, stderr=subprocess.STDOUT,
                                         stdin=subprocess.DEVNULL,
                                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            self.launching = False
             self.set_status(f"{LOADER_NAMES.get(loader, 'Vanilla')} {version} запущен")
             self.ui(self.withdraw)
             self.game_running = True
@@ -1375,6 +1545,7 @@ class App(tk.Tk):
             self.game_running = False
             self.ui(lambda: self.on_game_exit(code, root, version, started))
         except Exception as e:
+            self.launching = False
             self.set_status("Ошибка запуска")
             msg = str(e)
             self.ui(lambda: messagebox.showerror("Ошибка", msg))
