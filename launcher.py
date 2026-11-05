@@ -162,6 +162,32 @@ def build_log_text(root, started):
     return "\n".join(parts)
 
 
+def is_normal_game_exit(code, root, started):
+    """True for a normal Minecraft shutdown; noisy auth/Realms errors are not crashes."""
+    # A fresh crash report is the strongest signal, even if Java returned code 0.
+    if latest_crash_report(root, started):
+        return False
+    try:
+        if int(code) == 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    # The in-game Quit button and the window close button normally write Stopping!
+    # before the JVM exits. Ignore unrelated ERROR lines (e.g. offline auth 401).
+    latest = os.path.join(root, "logs", "latest.log")
+    if os.path.isfile(latest) and os.path.getmtime(latest) >= started - 5:
+        tail = read_tail(latest, 160)
+        fatal_markers = (
+            r"\[main/FATAL\]", r"Exception in thread \"", r"A fatal error has been detected",
+            r"The game crashed", r"Uncaught exception", r"Crash report saved",
+        )
+        if any(re.search(pattern, tail, re.I) for pattern in fatal_markers):
+            return False
+        if re.search(r"(?m)\bStopping!\s*$", tail):
+            return True
+    return False
+
+
 # ---------- servers.dat (NBT) ----------
 def _nbt_read(data, pos, tag):
     if tag == 1:
@@ -367,8 +393,8 @@ def alive(w):
 
 class Panel(tk.Canvas):
     """Скруглённая карточка с мягкой тенью. Содержимое кладётся в .inner."""
-    PAD = 14
-    SH = 6
+    PAD = 12
+    SH = 4
 
     def __init__(self, parent, bg=BG, fill=PANEL, radius=16):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0)
@@ -393,7 +419,7 @@ class Panel(tk.Canvas):
             self.config(height=h)
         self.delete("bg")
         r = self.radius
-        rrect(self, 6, self.SH + 4, w - 6, h - 1, r, fill="#050505", outline="", tags="bg")
+        rrect(self, 5, self.SH + 3, w - 5, h - 1, r, fill="#050505", outline="", tags="bg")
         rrect(self, 2, self.SH, w - 2, h - 3, r, fill=SHADOW, outline="", tags="bg")
         rrect(self, 0, 0, w - 1, h - self.SH - 1, r, fill=self.fill, outline=LINE, tags="bg")
         self.tag_lower("bg")
@@ -635,8 +661,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("RED LAUNCHER")
-        self.geometry("960x680")
-        self.minsize(900, 640)
+        self.geometry("900x640")
+        self.minsize(850, 590)
         self.configure(bg=BG)
 
         self.settings = load_json(CONFIG_FILE, {})
@@ -672,37 +698,70 @@ class App(tk.Tk):
 
     # ---------- оболочка ----------
     def build_shell(self):
-        side = tk.Frame(self, bg=SIDE, width=216)
+        # Компактная боковая навигация и отдельная рабочая область.
+        side = tk.Frame(self, bg=SIDE, width=188)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
-        logo = tk.Canvas(side, width=216, height=108, bg=SIDE, highlightthickness=0, bd=0)
+
+        logo = tk.Canvas(side, width=188, height=96, bg=SIDE, highlightthickness=0, bd=0)
         logo.pack(fill="x")
-        logo.create_text(26, 42, text="RED", anchor="w", fill=RED, font=(FONT, 26, "bold"))
-        logo.create_text(28, 70, text="LAUNCHER", anchor="w", fill=GREY, font=(FONT, 9, "bold"))
+        logo.create_text(20, 35, text="RED", anchor="w", fill=RED,
+                         font=(FONT, 25, "bold"))
+        logo.create_text(22, 62, text="LAUNCHER  /  2.1", anchor="w", fill=GREY,
+                         font=(FONT, 8, "bold"))
+        tk.Frame(side, bg=LINE, height=1).pack(fill="x", padx=14, pady=(0, 12))
+        tk.Label(side, text="РАЗДЕЛЫ", bg=SIDE, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w", padx=18, pady=(0, 6))
 
         nav_box = tk.Frame(side, bg=SIDE)
-        nav_box.pack(fill="x", padx=14, pady=(4, 0))
+        nav_box.pack(fill="x", padx=10, pady=(0, 8))
         self.nav = {}
+        nav_labels = {
+            "play": "◈  Главная",
+            "stats": "◷  Статистика",
+            "accounts": "◎  Аккаунты",
+            "versions": "▤  Версии",
+            "mods": "▦  Моды",
+            "doctor": "⌕  Диагностика",
+            "settings": "⚙  Настройки",
+        }
         for key, title in NAV:
-            b = Btn(nav_box, title, lambda k=key: self.show_page(k), style="nav", bg=SIDE,
-                    size=11, h=40, width=188, stretch=True, align="w")
-            b.pack(fill="x", pady=3)
+            label = nav_labels.get(key, title)
+            b = Btn(nav_box, label, lambda k=key: self.show_page(k), style="nav", bg=SIDE,
+                    size=10, h=36, width=164, stretch=True, align="w")
+            b.pack(fill="x", pady=2)
             self.nav[key] = b
-        tk.Label(side, text=f"Minecraft {self.settings['version']}", bg=SIDE,
-                 fg=MUTED, font=(FONT, 8)).pack(side="bottom", pady=14)
+
+        # Нижний блок даёт быстрый контекст: выбранный профиль и версия.
+        bottom = tk.Frame(side, bg="#151515", highlightthickness=1,
+                          highlightbackground=LINE)
+        bottom.pack(side="bottom", fill="x", padx=10, pady=(8, 10))
+        tk.Label(bottom, text="ТЕКУЩИЙ ПРОФИЛЬ", bg="#151515", fg=MUTED,
+                 font=(FONT, 7, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
+        self.side_account = tk.Label(bottom, text="Без аккаунта", bg="#151515", fg=TEXT,
+                                     font=(FONT, 9, "bold"), anchor="w")
+        self.side_account.pack(fill="x", padx=10)
+        self.side_version = tk.Label(bottom, text=self.version_label(), bg="#151515", fg=GREY,
+                                     font=(FONT, 8), anchor="w")
+        self.side_version.pack(fill="x", padx=10, pady=(1, 8))
+        tk.Label(side, text="WINDOWS  ·  BUILD 2.1", bg=SIDE, fg=MUTED,
+                 font=(FONT, 7, "bold")).pack(side="bottom", pady=(0, 2))
 
         main = tk.Frame(self, bg=BG)
         main.pack(side="left", fill="both", expand=True)
-        topbar = tk.Frame(main, bg=BG, height=42)
-        topbar.pack(fill="x", padx=30, pady=(16, 0))
+        topbar = tk.Frame(main, bg=BG, height=46)
+        topbar.pack(fill="x", padx=24, pady=(10, 0))
         topbar.pack_propagate(False)
-        tk.Label(topbar, text="RED  /  CONTROL CENTER", bg=BG, fg=GREY,
-                 font=(FONT, 9, "bold")).pack(side="left", anchor="center")
-        tk.Label(topbar, text="BUILD 2.0", bg=RED_DARK, fg=TEXT,
-                 font=(FONT, 8, "bold"), padx=10, pady=4).pack(side="right", anchor="center")
-        tk.Frame(main, bg=RED_DARK, height=1).pack(fill="x", padx=30, pady=(0, 8))
+        self.header_title = tk.Label(topbar, text="RED  /  CONTROL CENTER", bg=BG,
+                                     fg=TEXT, font=(FONT, 10, "bold"))
+        self.header_title.pack(side="left", anchor="center")
+        Btn(topbar, "Папка игры", lambda: open_folder(self.settings["root"]),
+            style="ghost", bg=BG, h=28, size=8).pack(side="right", padx=(8, 0), anchor="center")
+        tk.Label(topbar, text="BUILD 2.1", bg=RED_DARK, fg=TEXT,
+                 font=(FONT, 7, "bold"), padx=9, pady=4).pack(side="right", anchor="center")
+        tk.Frame(main, bg=RED_DARK, height=1).pack(fill="x", padx=24, pady=(0, 5))
         self.stage = tk.Frame(main, bg=BG)
-        self.stage.pack(fill="both", expand=True, padx=30, pady=(12, 26))
+        self.stage.pack(fill="both", expand=True, padx=24, pady=(8, 16))
 
     def show_page(self, key, animate=True):
         for k, b in self.nav.items():
@@ -712,6 +771,15 @@ class App(tk.Tk):
         if self.current in order:
             direction = 1 if order.index(key) > order.index(self.current) else -1
         self.current = key
+        titles = {"play": "Главная", "stats": "Статистика", "accounts": "Аккаунты",
+                  "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
+                  "settings": "Настройки"}
+        if hasattr(self, "header_title"):
+            self.header_title.config(text="RED  /  " + titles.get(key, "CONTROL CENTER").upper())
+        if hasattr(self, "side_account"):
+            account = self.current_account()
+            self.side_account.config(text=account["name"] if account else "Без аккаунта")
+            self.side_version.config(text=self.version_label())
 
         old = self.page
         if self.slide_job:
@@ -756,8 +824,8 @@ class App(tk.Tk):
             new.place_configure(x=0)
 
     def heading(self, p, title, sub):
-        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 20, "bold")).pack(anchor="w")
-        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(0, 12))
+        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 18, "bold")).pack(anchor="w")
+        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(0, 8))
 
     def ui(self, fn):
         def run():
@@ -782,53 +850,62 @@ class App(tk.Tk):
 
     # ---------- Главная ----------
     def page_play(self, p):
-        self.heading(p, "Главная", "Выбери аккаунт и версию, затем запускай")
+        self.heading(p, "Главная", "Аккаунт, сборка и память — всё для запуска в одном месте")
         acc = self.current_account()
 
-        hero = Panel(p)
-        hero.pack(fill="x", pady=4)
+        hero = Panel(p, radius=14)
+        hero.pack(fill="x", pady=3)
         row = hero.inner
-        Avatar(row, acc["name"] if acc else "?").pack(side="left", padx=(0, 14))
+        Avatar(row, acc["name"] if acc else "?", size=40).pack(side="left", padx=(0, 11))
         info = tk.Frame(row, bg=PANEL)
         info.pack(side="left", fill="x", expand=True)
-        tk.Label(info, text="АККАУНТ", bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
+        tk.Label(info, text="АККАУНТ", bg=PANEL, fg=GREY,
+                 font=(FONT, 7, "bold")).pack(anchor="w")
         tk.Label(info, text=acc["name"] if acc else "Не выбран", bg=PANEL, fg=TEXT,
-                 font=(FONT, 15, "bold")).pack(anchor="w")
-        Btn(row, "Сменить", lambda: self.show_page("accounts"), style="ghost", bg=PANEL,
-            h=30, size=9).pack(side="right", padx=(8, 0))
+                 font=(FONT, 13, "bold")).pack(anchor="w")
+        Btn(row, "Аккаунты", lambda: self.show_page("accounts"), style="ghost", bg=PANEL,
+            h=29, size=8).pack(side="right", padx=(8, 0))
         Btn(row, self.version_label(), lambda: self.show_page("versions"), style="soft",
-            bg=PANEL, h=30, size=9).pack(side="right")
+            bg=PANEL, h=29, size=8).pack(side="right")
 
-        ram = Panel(p)
-        ram.pack(fill="x", pady=4)
+        quick = tk.Frame(p, bg=BG)
+        quick.pack(fill="x", pady=3)
+        ram = Panel(quick, radius=14)
+        ram.pack(side="left", fill="both", expand=True, padx=(0, 4))
         top = tk.Frame(ram.inner, bg=PANEL)
         top.pack(fill="x")
-        tk.Label(top, text="Оперативная память", bg=PANEL, fg=TEXT,
-                 font=(FONT, 10, "bold")).pack(side="left")
-        self.ram_label = tk.Label(top, text="", bg=PANEL, fg=RED, font=(FONT, 10, "bold"))
+        tk.Label(top, text="ОПЕРАТИВНАЯ ПАМЯТЬ", bg=PANEL, fg=GREY,
+                 font=(FONT, 7, "bold")).pack(side="left")
+        self.ram_label = tk.Label(top, text="", bg=PANEL, fg=RED,
+                                  font=(FONT, 10, "bold"))
         self.ram_label.pack(side="right")
         max_ram = max(1024, min(4096, total_ram_mb() - 1024))
         Slider(ram.inner, self.ram_var, 1024, max_ram, 512,
-               cmd=self.update_ram_label, bg=PANEL).pack(fill="x", pady=(8, 0))
+               cmd=self.update_ram_label, bg=PANEL).pack(fill="x", pady=(7, 0))
+        tk.Label(ram.inner, text="Для системы оставляется запас памяти",
+                 bg=PANEL, fg=MUTED, font=(FONT, 7)).pack(anchor="w", pady=(3, 0))
         self.update_ram_label()
 
-        path = Panel(p)
-        path.pack(fill="x", pady=4)
+        path = Panel(quick, radius=14)
+        path.pack(side="left", fill="both", expand=True, padx=(4, 0))
         pr = tk.Frame(path.inner, bg=PANEL)
         pr.pack(fill="x")
         left = tk.Frame(pr, bg=PANEL)
         left.pack(side="left", fill="x", expand=True)
-        tk.Label(left, text="Корневая папка", bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
-        tk.Label(left, text=self.settings["root"], bg=PANEL, fg=TEXT, font=(FONT, 9)).pack(anchor="w")
-        Btn(pr, "Открыть", lambda: open_folder(self.settings["root"]), style="ghost", bg=PANEL,
-            h=30, size=9).pack(side="right")
+        tk.Label(left, text="ПАПКА ИГРЫ", bg=PANEL, fg=GREY,
+                 font=(FONT, 7, "bold")).pack(anchor="w")
+        tk.Label(left, text=self.settings["root"], bg=PANEL, fg=TEXT, font=(FONT, 8),
+                 anchor="w", justify="left", wraplength=225).pack(anchor="w", pady=(4, 0))
+        Btn(pr, "Открыть", lambda: open_folder(self.settings["root"]), style="ghost",
+            bg=PANEL, h=28, size=8).pack(side="right", padx=(6, 0))
 
         self.progress = Progress(p)
-        self.progress.pack(fill="x", pady=(14, 6))
-        self.status = tk.Label(p, text="Готов к запуску", bg=BG, fg=GREY, font=(FONT, 9))
+        self.progress.pack(fill="x", pady=(11, 5))
+        self.status = tk.Label(p, text="Готов к запуску", bg=BG, fg=GREY,
+                               font=(FONT, 8))
         self.status.pack(anchor="w")
-        Btn(p, "ЗАПУСТИТЬ", self.start_game, style="primary", big=True, pulse=True,
-            stretch=True).pack(fill="x", pady=(10, 0))
+        Btn(p, "ЗАПУСТИТЬ MINECRAFT", self.start_game, style="primary", big=True,
+            pulse=True, stretch=True).pack(fill="x", pady=(8, 0))
 
     def update_ram_label(self):
         try:
@@ -1313,9 +1390,13 @@ class App(tk.Tk):
 
     # ---------- Вылет / закрытие игры ----------
     def on_game_exit(self, code, root, version, started):
+        self.game_running = False
         self.deiconify()
         self.lift()
         self.focus_force()
+        if is_normal_game_exit(code, root, started):
+            self.set_status("Minecraft закрыт без ошибок")
+            return
         self.show_crash_dialog(code, root, version, started)
 
     def show_crash_dialog(self, code, root, version, started):
@@ -1328,9 +1409,9 @@ class App(tk.Tk):
         pn = Panel(win, bg=BG)
         pn.pack(fill="both", expand=True, padx=18, pady=18)
 
-        tk.Label(pn.inner, text="Упс, походу у вас проблемки", bg=PANEL, fg=RED,
-                 font=(FONT, 16, "bold")).pack(anchor="w")
-        tk.Label(pn.inner, text=f"Minecraft {version} завершился с кодом {code}",
+        tk.Label(pn.inner, text="Minecraft завершился с ошибкой", bg=PANEL, fg=RED,
+                 font=(FONT, 15, "bold")).pack(anchor="w")
+        tk.Label(pn.inner, text=f"Версия {version} · код завершения {code}",
                  bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(2, 10))
 
         box = tk.Frame(pn.inner, bg=FIELD)
