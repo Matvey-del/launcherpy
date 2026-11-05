@@ -3,6 +3,10 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
 import minecraft_launcher_lib as mll
+try:
+    import minecraft_launcher_lib.runtime as mll_runtime
+except Exception:
+    mll_runtime = None
 
 APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "RedLauncher")
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
@@ -86,20 +90,31 @@ JAVA_PATTERNS = [
     r"C:\Program Files\Java\*\bin\javaw.exe",
     r"C:\Program Files (x86)\Java\*\bin\javaw.exe",
     r"C:\Program Files\Eclipse Adoptium\*\bin\javaw.exe",
+    r"C:\Program Files (x86)\Eclipse Adoptium\*\bin\javaw.exe",
     r"C:\Program Files\Microsoft\jdk-*\bin\javaw.exe",
     r"C:\Program Files\Zulu\*\bin\javaw.exe",
     r"C:\Program Files\BellSoft\*\bin\javaw.exe",
+    r"C:\Program Files\Amazon Corretto\*\bin\javaw.exe",
+    os.path.join(APP_DIR, "runtimes", "*", "bin", "javaw.exe"),
 ]
 
 
-def find_javas():
+def find_javas(root=None):
     import glob
     cands = []
     jh = os.environ.get("JAVA_HOME")
     if jh:
-        cands.append(os.path.join(jh, "bin", "javaw.exe"))
+        cands.extend([os.path.join(jh, "bin", "javaw.exe"), os.path.join(jh, "bin", "java.exe")])
     for pat in JAVA_PATTERNS:
         cands += glob.glob(pat)
+    if root:
+        cands += glob.glob(os.path.join(root, "runtime", "**", "bin", "javaw.exe"), recursive=True)
+        cands += glob.glob(os.path.join(root, "runtime", "**", "bin", "java.exe"), recursive=True)
+    # Also detect Java installed in PATH (common on older Windows installations).
+    for exe in ("javaw.exe", "java.exe"):
+        found = shutil.which(exe)
+        if found:
+            cands.append(found)
     seen, result = set(), []
     for c in cands:
         if os.path.isfile(c):
@@ -108,6 +123,64 @@ def find_javas():
                 seen.add(key)
                 result.append(c)
     return result
+
+
+def mc_version_tuple(version):
+    """Extract major/minor/patch from release ids and snapshot ids."""
+    match = re.search(r"(?<!\d)(\d+)\.(\d+)(?:\.(\d+))?", str(version or ""))
+    if not match:
+        return None
+    return tuple(int(x or 0) for x in match.groups())
+
+
+def java_requirement(version, root=None):
+    """Return (major, runtime component), using Mojang version JSON when available."""
+    # Inspect the selected vanilla version metadata first. This is more reliable than
+    # a hardcoded global Java version and also handles future Minecraft releases.
+    if root:
+        seen = set()
+        current = str(version)
+        for _ in range(8):
+            if not current or current in seen:
+                break
+            seen.add(current)
+            path = os.path.join(root, "versions", current, current + ".json")
+            data = load_json(path, {})
+            java_data = data.get("javaVersion") or {}
+            major = java_data.get("majorVersion")
+            component = java_data.get("component")
+            try:
+                if major:
+                    return int(major), component or java_component_for_major(int(major))
+            except (TypeError, ValueError):
+                pass
+            current = data.get("inheritsFrom")
+
+    v = mc_version_tuple(version)
+    if not v:
+        return 8, "jre-legacy"
+    if v >= (26, 1, 0):
+        major = 25
+    elif v >= (1, 20, 5):
+        major = 21
+    elif v >= (1, 18, 0):
+        major = 17
+    elif v >= (1, 17, 0):
+        major = 16
+    else:
+        # The pre-1.17 official launcher runtime is Java 8 (jre-legacy).
+        major = 8
+    return major, java_component_for_major(major)
+
+
+def java_component_for_major(major):
+    return {
+        8: "jre-legacy",
+        16: "java-runtime-alpha",
+        17: "java-runtime-gamma",
+        21: "java-runtime-delta",
+        25: "java-runtime-epsilon",
+    }.get(int(major))
 
 
 def java_major(path):
@@ -393,8 +466,8 @@ def alive(w):
 
 class Panel(tk.Canvas):
     """Скруглённая карточка с мягкой тенью. Содержимое кладётся в .inner."""
-    PAD = 12
-    SH = 4
+    PAD = 10
+    SH = 3
 
     def __init__(self, parent, bg=BG, fill=PANEL, radius=16):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0)
@@ -432,8 +505,8 @@ class Btn(tk.Canvas):
         "soft": (RED_DARK, "#7f1820", TEXT),
         "ghost": ("#222222", "#2e2e2e", TEXT),
         "danger": ("#241012", "#3a1419", "#ff6b74"),
-        "nav": (SIDE, "#1d1d1d", GREY),
-        "nav_on": (RED_DARK, "#7f1820", TEXT),
+        "nav": ("#151515", "#242424", "#a3a3a3"),
+        "nav_on": ("#461319", "#661923", "#ffffff"),
     }
 
     def __init__(self, parent, text, cmd, style="primary", bg=PANEL, size=10, h=34,
@@ -660,9 +733,9 @@ class Avatar(tk.Canvas):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("RED LAUNCHER")
+        self.title("RED LAUNCHER 2.3 · Compact Edition")
         self.geometry("900x640")
-        self.minsize(850, 590)
+        self.minsize(820, 580)
         self.configure(bg=BG)
 
         self.settings = load_json(CONFIG_FILE, {})
@@ -672,6 +745,7 @@ class App(tk.Tk):
         self.settings.setdefault("snapshots", False)
         self.settings.setdefault("account", None)
         self.settings.setdefault("java", "")
+        self.settings.setdefault("java_by_major", {})
         self.settings.setdefault("loader", "vanilla")
         self.accounts = load_json(ACCOUNTS_FILE, [])
 
@@ -698,70 +772,66 @@ class App(tk.Tk):
 
     # ---------- оболочка ----------
     def build_shell(self):
-        # Компактная боковая навигация и отдельная рабочая область.
-        side = tk.Frame(self, bg=SIDE, width=188)
-        side.pack(side="left", fill="y")
-        side.pack_propagate(False)
+        """Новая оболочка: рабочая область на всю ширину и нижняя навигация."""
+        main = tk.Frame(self, bg=BG)
+        main.pack(fill="both", expand=True)
 
-        logo = tk.Canvas(side, width=188, height=96, bg=SIDE, highlightthickness=0, bd=0)
-        logo.pack(fill="x")
-        logo.create_text(20, 35, text="RED", anchor="w", fill=RED,
-                         font=(FONT, 25, "bold"))
-        logo.create_text(22, 62, text="LAUNCHER  /  2.1", anchor="w", fill=GREY,
-                         font=(FONT, 8, "bold"))
-        tk.Frame(side, bg=LINE, height=1).pack(fill="x", padx=14, pady=(0, 12))
-        tk.Label(side, text="РАЗДЕЛЫ", bg=SIDE, fg=MUTED,
-                 font=(FONT, 8, "bold")).pack(anchor="w", padx=18, pady=(0, 6))
+        # Верхняя компактная панель: бренд, заголовок страницы и состояние профиля.
+        topbar = tk.Frame(main, bg=BG, height=50)
+        topbar.pack(side="top", fill="x", padx=20, pady=(7, 0))
+        topbar.pack_propagate(False)
 
-        nav_box = tk.Frame(side, bg=SIDE)
-        nav_box.pack(fill="x", padx=10, pady=(0, 8))
+        brand = tk.Frame(topbar, bg=BG)
+        brand.pack(side="left", fill="y")
+        tk.Label(brand, text="RED", bg=BG, fg=RED,
+                 font=(FONT, 18, "bold")).pack(side="left", pady=(0, 1))
+        tk.Label(brand, text="LAUNCHER", bg=BG, fg=GREY,
+                 font=(FONT, 7, "bold")).pack(side="left", padx=(6, 13), pady=(7, 0))
+        tk.Frame(topbar, bg=LINE, width=1, height=24).pack(side="left", padx=(0, 13), pady=12)
+
+        self.header_title = tk.Label(topbar, text="ГЛАВНАЯ", bg=BG, fg=TEXT,
+                                     font=(FONT, 9, "bold"))
+        self.header_title.pack(side="left", anchor="center")
+
+        right = tk.Frame(topbar, bg=BG)
+        right.pack(side="right", fill="y")
+        self.header_meta = tk.Label(right, text="Без аккаунта  ·  Vanilla 1.21.4",
+                                    bg=BG, fg=GREY, font=(FONT, 8))
+        self.header_meta.pack(side="left", padx=(0, 10), pady=14)
+        tk.Label(right, text="2.3", bg=RED_DARK, fg=TEXT,
+                 font=(FONT, 7, "bold"), padx=8, pady=4).pack(side="left", padx=(0, 8), pady=10)
+        Btn(right, "Папка", lambda: open_folder(self.settings["root"]),
+            style="ghost", bg=BG, h=28, size=8).pack(side="left", pady=10)
+
+        tk.Frame(main, bg=LINE, height=1).pack(side="top", fill="x", padx=20, pady=(0, 0))
+
+        # Центральная сцена занимает всё доступное место.
+        self.stage = tk.Frame(main, bg=BG)
+        self.stage.pack(side="top", fill="both", expand=True, padx=20, pady=(9, 7))
+
+        # Нижняя навигация — постоянная, широкая и компактная.
+        nav_shell = tk.Frame(main, bg="#111111", height=66,
+                             highlightthickness=1, highlightbackground=LINE)
+        nav_shell.pack(side="bottom", fill="x")
+        nav_shell.pack_propagate(False)
+        nav_row = tk.Frame(nav_shell, bg="#111111")
+        nav_row.pack(fill="both", expand=True, padx=12, pady=7)
         self.nav = {}
         nav_labels = {
-            "play": "◈  Главная",
-            "stats": "◷  Статистика",
-            "accounts": "◎  Аккаунты",
-            "versions": "▤  Версии",
-            "mods": "▦  Моды",
-            "doctor": "⌕  Диагностика",
-            "settings": "⚙  Настройки",
+            "play": "⌂\nГлавная",
+            "stats": "◷\nСтатистика",
+            "accounts": "◎\nАккаунты",
+            "versions": "▤\nВерсии",
+            "mods": "▦\nМоды",
+            "doctor": "⌕\nДиагностика",
+            "settings": "⚙\nНастройки",
         }
-        for key, title in NAV:
-            label = nav_labels.get(key, title)
-            b = Btn(nav_box, label, lambda k=key: self.show_page(k), style="nav", bg=SIDE,
-                    size=10, h=36, width=164, stretch=True, align="w")
-            b.pack(fill="x", pady=2)
+        for key, _title in NAV:
+            b = Btn(nav_row, nav_labels.get(key, _title),
+                    lambda k=key: self.show_page(k), style="nav", bg="#111111",
+                    size=8, h=50, width=100, stretch=True, align="center")
+            b.pack(side="left", fill="both", expand=True, padx=3)
             self.nav[key] = b
-
-        # Нижний блок даёт быстрый контекст: выбранный профиль и версия.
-        bottom = tk.Frame(side, bg="#151515", highlightthickness=1,
-                          highlightbackground=LINE)
-        bottom.pack(side="bottom", fill="x", padx=10, pady=(8, 10))
-        tk.Label(bottom, text="ТЕКУЩИЙ ПРОФИЛЬ", bg="#151515", fg=MUTED,
-                 font=(FONT, 7, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        self.side_account = tk.Label(bottom, text="Без аккаунта", bg="#151515", fg=TEXT,
-                                     font=(FONT, 9, "bold"), anchor="w")
-        self.side_account.pack(fill="x", padx=10)
-        self.side_version = tk.Label(bottom, text=self.version_label(), bg="#151515", fg=GREY,
-                                     font=(FONT, 8), anchor="w")
-        self.side_version.pack(fill="x", padx=10, pady=(1, 8))
-        tk.Label(side, text="WINDOWS  ·  BUILD 2.1", bg=SIDE, fg=MUTED,
-                 font=(FONT, 7, "bold")).pack(side="bottom", pady=(0, 2))
-
-        main = tk.Frame(self, bg=BG)
-        main.pack(side="left", fill="both", expand=True)
-        topbar = tk.Frame(main, bg=BG, height=46)
-        topbar.pack(fill="x", padx=24, pady=(10, 0))
-        topbar.pack_propagate(False)
-        self.header_title = tk.Label(topbar, text="RED  /  CONTROL CENTER", bg=BG,
-                                     fg=TEXT, font=(FONT, 10, "bold"))
-        self.header_title.pack(side="left", anchor="center")
-        Btn(topbar, "Папка игры", lambda: open_folder(self.settings["root"]),
-            style="ghost", bg=BG, h=28, size=8).pack(side="right", padx=(8, 0), anchor="center")
-        tk.Label(topbar, text="BUILD 2.1", bg=RED_DARK, fg=TEXT,
-                 font=(FONT, 7, "bold"), padx=9, pady=4).pack(side="right", anchor="center")
-        tk.Frame(main, bg=RED_DARK, height=1).pack(fill="x", padx=24, pady=(0, 5))
-        self.stage = tk.Frame(main, bg=BG)
-        self.stage.pack(fill="both", expand=True, padx=24, pady=(8, 16))
 
     def show_page(self, key, animate=True):
         for k, b in self.nav.items():
@@ -775,11 +845,11 @@ class App(tk.Tk):
                   "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
                   "settings": "Настройки"}
         if hasattr(self, "header_title"):
-            self.header_title.config(text="RED  /  " + titles.get(key, "CONTROL CENTER").upper())
-        if hasattr(self, "side_account"):
+            self.header_title.config(text=titles.get(key, "CONTROL CENTER").upper())
+        if hasattr(self, "header_meta"):
             account = self.current_account()
-            self.side_account.config(text=account["name"] if account else "Без аккаунта")
-            self.side_version.config(text=self.version_label())
+            name = account["name"] if account else "Без аккаунта"
+            self.header_meta.config(text=f"{name}  ·  {self.version_label()}")
 
         old = self.page
         if self.slide_job:
@@ -799,15 +869,15 @@ class App(tk.Tk):
         self.page = new
         if animate and old is not None and alive(old):
             self.outgoing = old
-            new.place(x=60 * direction, y=0, relwidth=1, relheight=1)
+            new.place(x=34 * direction, y=0, relwidth=1, relheight=1)
             new.lift()
-            self._slide(new, old, 60 * direction, 0)
+            self._slide(new, old, 34 * direction, 0)
         else:
             if old is not None and alive(old):
                 old.destroy()
             new.place(x=0, y=0, relwidth=1, relheight=1)
 
-    def _slide(self, new, old, start, step, steps=9):
+    def _slide(self, new, old, start, step, steps=12):
         if not (alive(new) and alive(old)):
             self.slide_job = None
             return
@@ -816,7 +886,7 @@ class App(tk.Tk):
         new.place_configure(x=x)
         old.place_configure(x=x - start)
         if step + 1 < steps:
-            self.slide_job = self.after(16, self._slide, new, old, start, step + 1, steps)
+            self.slide_job = self.after(14, self._slide, new, old, start, step + 1, steps)
         else:
             self.slide_job = None
             old.destroy()
@@ -824,8 +894,8 @@ class App(tk.Tk):
             new.place_configure(x=0)
 
     def heading(self, p, title, sub):
-        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 18, "bold")).pack(anchor="w")
-        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(0, 8))
+        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 16, "bold")).pack(anchor="w")
+        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(0, 6))
 
     def ui(self, fn):
         def run():
@@ -1039,8 +1109,8 @@ class App(tk.Tk):
         self.version_status = tk.Label(lp.inner, text="", bg=PANEL, fg=GREY, font=(FONT, 9))
         self.version_status.pack(anchor="w")
         self.version_list = tk.Listbox(lp.inner, bg=FIELD, fg=TEXT, selectbackground=RED,
-                                       selectforeground=TEXT, relief="flat", font=(FONT, 11),
-                                       highlightthickness=0, bd=0, activestyle="none", height=9)
+                                       selectforeground=TEXT, relief="flat", font=(FONT, 10),
+                                       highlightthickness=0, bd=0, activestyle="none", height=8)
         self.version_list.pack(fill="x", pady=6)
         Btn(lp.inner, "Выбрать версию", self.choose_version, style="primary", h=34).pack(anchor="e")
 
@@ -1184,7 +1254,7 @@ class App(tk.Tk):
         tk.Label(repair.inner, text="Удаляет дубли одной и той же библиотеки ASM из JSON профиля Fabric. Перед изменением создаётся резервная копия.",
                  bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 8))
         Btn(repair.inner, "ИСПРАВИТЬ ASM", self.repair_asm, style="soft", h=34).pack(anchor="w")
-        self.doctor_output = tk.Text(p, height=12, bg=FIELD, fg=TEXT, insertbackground=RED,
+        self.doctor_output = tk.Text(p, height=10, bg=FIELD, fg=TEXT, insertbackground=RED,
                                      relief="flat", bd=0, highlightthickness=1,
                                      highlightbackground=LINE, font=("Consolas", 9), wrap="word")
         self.doctor_output.pack(fill="both", expand=True, pady=(8, 0))
@@ -1448,7 +1518,14 @@ class App(tk.Tk):
         head.pack(fill="x")
         tk.Label(head, text="Java для игры", bg=PANEL, fg=TEXT, font=(FONT, 11, "bold")).pack(side="left")
         Btn(head, "Указать вручную", self.pick_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right")
-        Btn(head, "Авто", self.auto_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right", padx=6)
+        Btn(head, "Авто для версии", self.auto_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right", padx=6)
+        required, component = java_requirement(self.settings.get("version", DEFAULT_VERSION), self.settings.get("root"))
+        tk.Label(pn.inner,
+                 text=f"Minecraft {self.settings.get('version')} → подобрана Java {required}",
+                 bg=PANEL, fg=RED, font=(FONT, 10, "bold")).pack(anchor="w", pady=(8, 2))
+        tk.Label(pn.inner,
+                 text="Лаунчер сначала ищет подходящую Java на компьютере, а если её нет — пробует установить официальный runtime Mojang.",
+                 bg=PANEL, fg=GREY, font=(FONT, 8), wraplength=680, justify="left").pack(anchor="w")
         self.java_box = tk.Frame(pn.inner, bg=PANEL)
         self.java_box.pack(fill="x", pady=(8, 0))
         if self.java_cache is None:
@@ -1459,62 +1536,128 @@ class App(tk.Tk):
             self.fill_java_list()
 
     def _scan_java(self):
-        found = [(path, java_major(path)) for path in find_javas()]
+        found = [(path, java_major(path)) for path in find_javas(self.settings.get("root"))]
         self.java_cache = found
         self.ui(self.fill_java_list)
 
     def fill_java_list(self):
         for w in self.java_box.winfo_children():
             w.destroy()
-        cur = self.settings.get("java") or ""
+        req, _component = java_requirement(self.settings.get("version", DEFAULT_VERSION), self.settings.get("root"))
+        cur = self.settings.get("java_by_major", {}).get(str(req), "")
+        legacy = self.settings.get("java", "")
+        if not cur and legacy and java_major(legacy) == req:
+            cur = legacy
         if not self.java_cache:
-            tk.Label(self.java_box, text="Java не найдена автоматически. Укажи javaw.exe вручную.",
+            tk.Label(self.java_box, text="Java не найдена автоматически. При запуске лаунчер попробует скачать runtime.",
                      bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
         for path, major in self.java_cache:
+            exact = major == req
+            compatible = major is not None and major >= req
             r = tk.Frame(self.java_box, bg=PANEL)
             r.pack(fill="x", pady=2)
-            ok = major is not None and major >= 21
-            tk.Label(r, text=f"Java {major}" if major else "версия неизвестна", bg=PANEL,
-                     fg=TEXT if ok else "#ff6b74", font=(FONT, 10, "bold"), width=14,
-                     anchor="w").pack(side="left")
+            title = f"Java {major}" if major else "версия неизвестна"
+            suffix = " · подходит" if exact else (" · новее" if compatible else " · не подходит")
+            tk.Label(r, text=title + suffix, bg=PANEL,
+                     fg=("#78d69b" if exact else (TEXT if compatible else "#ff6b74")),
+                     font=(FONT, 9, "bold"), width=25, anchor="w").pack(side="left")
             tk.Label(r, text=path, bg=PANEL, fg=GREY, font=(FONT, 8), anchor="w").pack(
                 side="left", fill="x", expand=True)
             selected = path == cur
             Btn(r, "Выбрана" if selected else "Выбрать", lambda p=path: self.set_java(p),
-                style="soft" if selected else "ghost", bg=PANEL, h=26, size=9).pack(side="right")
-        if cur and cur not in [p for p, _ in self.java_cache]:
-            tk.Label(self.java_box, text=f"Вручную выбрано: {cur}", bg=PANEL, fg=GREY,
+                style="soft" if selected else "ghost", bg=PANEL, h=25, size=8).pack(side="right")
+        if cur and cur not in [path for path, _ in self.java_cache]:
+            tk.Label(self.java_box, text=f"Сохранённый путь: {cur}", bg=PANEL, fg=GREY,
                      font=(FONT, 8)).pack(anchor="w", pady=(4, 0))
 
     def set_java(self, path):
-        self.settings["java"] = path
+        major = java_major(path)
+        if major is not None:
+            mapping = self.settings.setdefault("java_by_major", {})
+            mapping[str(major)] = path
+            # Retain the legacy field for compatibility with older RED Launcher configs.
+            self.settings["java"] = path
         self.save_settings()
         self.show_page("settings", animate=False)
 
     def auto_java(self):
-        self.set_java("")
+        self.settings["java"] = ""
+        self.settings["java_by_major"] = {}
+        self.save_settings()
+        self.show_page("settings", animate=False)
 
     def pick_java(self):
-        path = filedialog.askopenfilename(filetypes=[("Java", "*.exe"), ("Все файлы", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("Java", "javaw.exe;java.exe"), ("Все файлы", "*.*")])
         if not path:
             return
         major = java_major(path)
         if major is None:
             return messagebox.showerror("Ошибка", "Не удалось определить версию Java по этому файлу")
-        if major < 21:
-            return messagebox.showerror("Ошибка", f"Для Minecraft 1.21.4 нужна Java 21 или новее. Выбрана Java {major}.")
+        required, _component = java_requirement(self.settings.get("version", DEFAULT_VERSION), self.settings.get("root"))
+        if major < required:
+            return messagebox.showerror("Неподходящая Java",
+                f"Для Minecraft {self.settings.get('version')} рекомендуется Java {required} или новее. Выбрана Java {major}.")
         self.set_java(path)
 
-    def resolve_java(self):
-        """Путь к Java для запуска: выбранная вручную, либо автоматически найденная 21+, либо java из PATH."""
-        manual = self.settings.get("java") or ""
-        if manual:
-            return manual
-        for path in find_javas():
-            major = java_major(path)
-            if major is not None and major >= 21:
-                return path
-        return "java"
+    def resolve_java(self, root, mc_version, cb):
+        """Select the exact Java runtime for the selected Minecraft version; install Mojang runtime if missing."""
+        required, component = java_requirement(mc_version, root)
+        by_major = self.settings.get("java_by_major", {}) or {}
+        configured = by_major.get(str(required), "")
+        legacy_manual = self.settings.get("java") or ""
+
+        # Version-specific configured Java, then exact locally installed Java.
+        if configured and os.path.isfile(configured) and java_major(configured) == required:
+            return configured, required, component
+        for path in find_javas(root):
+            if java_major(path) == required:
+                return path, required, component
+        # A manually selected Java can be used as a fallback only if it is new enough.
+        if legacy_manual and os.path.isfile(legacy_manual):
+            manual_major = java_major(legacy_manual)
+            if manual_major == required:
+                return legacy_manual, manual_major, component
+
+        # Try the matching Mojang runtime, stored inside the launcher's game directory.
+        if component and mll_runtime is not None:
+            try:
+                installed = mll_runtime.get_executable_path(component, root)
+                if installed and os.path.isfile(installed) and java_major(installed) == required:
+                    return installed, required, component
+            except Exception:
+                pass
+            try:
+                available = mll_runtime.get_jvm_runtimes()
+                if component in available:
+                    self.set_status(f"Загрузка Java {required} для Minecraft {mc_version}...")
+                    mll_runtime.install_jvm_runtime(component, root, callback=cb)
+                    installed = mll_runtime.get_executable_path(component, root)
+                    if installed and os.path.isfile(installed):
+                        installed_major = java_major(installed)
+                        if installed_major == required:
+                            return installed, installed_major, component
+            except Exception as e:
+                runtime_error = str(e)
+            else:
+                runtime_error = "Подходящий runtime отсутствует в каталоге Mojang."
+        else:
+            runtime_error = "Модуль установки Java runtime недоступен в minecraft-launcher-lib."
+
+        # Last resort: use a newer installed Java only when it is likely to be compatible.
+        newer = [(java_major(path), path) for path in find_javas(root)]
+        newer = [(major, path) for major, path in newer if major is not None and major > required]
+        newer.sort(key=lambda item: item[0])
+        if newer:
+            return newer[0][1], newer[0][0], component
+        if legacy_manual and os.path.isfile(legacy_manual):
+            manual_major = java_major(legacy_manual)
+            if manual_major is not None and manual_major > required:
+                return legacy_manual, manual_major, component
+        raise RuntimeError(
+            f"Для Minecraft {mc_version} подходит Java {required}. Подходящая Java не найдена, "
+            f"а автоматическая установка не удалась. {runtime_error} "
+            f"Открой Настройки → Java или установи Java {required}."
+        )
 
     # ---------- Запуск ----------
     def start_game(self):
@@ -1564,12 +1707,6 @@ class App(tk.Tk):
     def _launch(self, acc, root, version, ram, loader):
         try:
             os.makedirs(root, exist_ok=True)
-            java = self.resolve_java()
-            major = java_major(java)
-            if major is None or major < 21:
-                raise RuntimeError(f"Для Minecraft {version} нужна Java 21 или новее. "
-                                   f"Сейчас используется: {java} (версия {major}). "
-                                   f"Укажи подходящую Java в Настройки → Java.")
             state = {"max": 1}
 
             def set_max(v):
@@ -1580,9 +1717,13 @@ class App(tk.Tk):
 
             cb = {"setStatus": self.set_status, "setProgress": set_prog, "setMax": set_max}
 
+            # Install/read the selected base version first: its JSON contains javaVersion.
             if not self.find_installed(root, lambda i: i == version):
                 self.set_status(f"Загрузка Minecraft {version}...")
                 mll.install.install_minecraft_version(version, root, callback=cb)
+
+            java, major, component = self.resolve_java(root, version, cb)
+            self.set_status(f"Используется Java {major} для Minecraft {version}")
 
             target = version
             if loader == "fabric":
@@ -1607,7 +1748,7 @@ class App(tk.Tk):
             os.makedirs(logs_dir, exist_ok=True)
             out_path = os.path.join(logs_dir, "launcher_output.log")
             with open(out_path, "w", encoding="utf-8", errors="replace") as out:
-                out.write(f"Java: {java} (версия {major})\n")
+                out.write(f"Java: {java} (версия {major}; требуется {java_requirement(version, root)[0]})\n")
                 out.write(f"Версия: {target}\n")
                 if removed_asm:
                     out.write("Исправление classpath: удалены дубли ASM:\n")
@@ -1619,7 +1760,7 @@ class App(tk.Tk):
                                         stdin=subprocess.DEVNULL,
                                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.launching = False
-            self.set_status(f"{LOADER_NAMES.get(loader, 'Vanilla')} {version} запущен")
+            self.set_status(f"{LOADER_NAMES.get(loader, 'Vanilla')} {version} запущен · Java {major}")
             self.ui(self.withdraw)
             self.game_running = True
             code = self.monitor_game(proc, root)
