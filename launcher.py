@@ -1,4 +1,4 @@
-import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math
+import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
@@ -7,9 +7,10 @@ import minecraft_launcher_lib as mll
 APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "RedLauncher")
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ACCOUNTS_FILE = os.path.join(APP_DIR, "profiles.json")
+STATS_FILE = os.path.join(APP_DIR, "stats.json")
 DEFAULT_ROOT = os.path.join(APP_DIR, "game")
 DEFAULT_VERSION = "1.21.4"
-NAV = [("play", "Главная"), ("accounts", "Аккаунты"), ("versions", "Версии"),
+NAV = [("play", "Главная"), ("stats", "Статистика"), ("accounts", "Аккаунты"), ("versions", "Версии"),
        ("mods", "Моды"), ("settings", "Настройки")]
 
 BG = "#0d0d0d"
@@ -118,6 +119,139 @@ def java_major(path):
     if major == 1 and m.group(2):
         major = int(m.group(2))
     return major
+
+
+def read_tail(path, lines=200):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return "".join(f.readlines()[-lines:])
+    except Exception:
+        return ""
+
+
+def latest_crash_report(root, started):
+    d = os.path.join(root, "crash-reports")
+    if not os.path.isdir(d):
+        return None
+    files = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".txt")]
+    files = [f for f in files if os.path.getmtime(f) >= started - 5]
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def build_log_text(root, started):
+    parts = []
+    crash = latest_crash_report(root, started)
+    if crash:
+        parts.append("=== Crash report: " + os.path.basename(crash) + " ===\n" + read_tail(crash, 400))
+    parts.append("=== logs/latest.log ===\n" + read_tail(os.path.join(root, "logs", "latest.log"), 200))
+    return "\n".join(parts)
+
+
+# ---------- servers.dat (NBT) ----------
+def _nbt_read(data, pos, tag):
+    if tag == 1:
+        return struct.unpack_from(">b", data, pos)[0], pos + 1
+    if tag == 2:
+        return struct.unpack_from(">h", data, pos)[0], pos + 2
+    if tag == 3:
+        return struct.unpack_from(">i", data, pos)[0], pos + 4
+    if tag == 4:
+        return struct.unpack_from(">q", data, pos)[0], pos + 8
+    if tag == 5:
+        return struct.unpack_from(">f", data, pos)[0], pos + 4
+    if tag == 6:
+        return struct.unpack_from(">d", data, pos)[0], pos + 8
+    if tag == 7:
+        n = struct.unpack_from(">i", data, pos)[0]
+        return None, pos + 4 + n
+    if tag == 8:
+        n = struct.unpack_from(">H", data, pos)[0]
+        pos += 2
+        return data[pos:pos + n].decode("utf-8", "replace"), pos + n
+    if tag == 9:
+        etype = data[pos]
+        n = struct.unpack_from(">i", data, pos + 1)[0]
+        pos += 5
+        out = []
+        for _ in range(n):
+            v, pos = _nbt_read(data, pos, etype)
+            out.append(v)
+        return out, pos
+    if tag == 10:
+        out = {}
+        while True:
+            t = data[pos]
+            pos += 1
+            if t == 0:
+                return out, pos
+            n = struct.unpack_from(">H", data, pos)[0]
+            pos += 2
+            name = data[pos:pos + n].decode("utf-8", "replace")
+            pos += n
+            v, pos = _nbt_read(data, pos, t)
+            out[name] = v
+    if tag == 11:
+        n = struct.unpack_from(">i", data, pos)[0]
+        return None, pos + 4 + 4 * n
+    if tag == 12:
+        n = struct.unpack_from(">i", data, pos)[0]
+        return None, pos + 4 + 8 * n
+    raise ValueError("unknown NBT tag %d" % tag)
+
+
+def read_servers(root):
+    """Список серверов из servers.dat: name, ip, icon (data:image/png;base64,...)."""
+    path = os.path.join(root, "servers.dat")
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        try:
+            raw = gzip.decompress(raw)
+        except OSError:
+            pass
+        # заголовок корневого тега: тип (1 байт), длина имени (2 байта), имя
+        name_len = struct.unpack_from(">H", raw, 1)[0]
+        top, _ = _nbt_read(raw, 3 + name_len, 10)
+        result = []
+        for s in top.get("servers", []) or []:
+            result.append({"name": s.get("name", ""), "ip": s.get("ip", ""), "icon": s.get("icon", "")})
+        return result
+    except Exception:
+        return []
+
+
+def server_key(host, port):
+    host = host.strip().lower()
+    port = str(port).strip()
+    return host if port in ("", "25565") else f"{host}:{port}"
+
+
+def read_new(path, pos):
+    if not os.path.isfile(path):
+        return "", pos
+    size = os.path.getsize(path)
+    if size < pos:
+        pos = 0
+    with open(path, "rb") as f:
+        f.seek(pos)
+        data = f.read()
+    return data.decode("utf-8", "replace"), pos + len(data)
+
+
+def add_playtime(key, seconds):
+    if seconds <= 0:
+        return
+    stats = load_json(STATS_FILE, {})
+    stats[key] = stats.get(key, 0) + seconds
+    save_json(STATS_FILE, stats)
+
+
+def fmt_hours(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    return f"{h} ч {m} мин"
 
 
 def lerp(a, b, t):
@@ -431,7 +565,7 @@ class App(tk.Tk):
         self.page = None
         self.outgoing = None
         self.slide_job = None
-        self.builders = {"play": self.page_play, "accounts": self.page_accounts,
+        self.builders = {"play": self.page_play, "stats": self.page_stats, "accounts": self.page_accounts,
                          "versions": self.page_versions, "mods": self.page_mods,
                          "settings": self.page_settings}
         self.build_shell()
@@ -852,6 +986,123 @@ class App(tk.Tk):
         self.save_settings()
         self.show_page("settings", animate=False)
 
+    # ---------- Статистика ----------
+    def monitor_game(self, proc, root):
+        """Следит за логом игры: по строке 'Connecting to ...' считает время на сервере."""
+        log = os.path.join(root, "logs", "latest.log")
+        connect_re = re.compile(r"Connecting to ([^,\s]+), (\d+)")
+        pos = 0
+        cur_key, cur_start = None, None
+        while proc.poll() is None:
+            time.sleep(2)
+            chunk, pos = read_new(log, pos)
+            for line in chunk.splitlines():
+                m = connect_re.search(line)
+                if m:
+                    now = time.time()
+                    if cur_key:
+                        add_playtime(cur_key, now - cur_start)
+                    cur_key, cur_start = server_key(m.group(1), m.group(2)), now
+                elif "Stopping!" in line and cur_key:
+                    add_playtime(cur_key, time.time() - cur_start)
+                    cur_key = None
+        if cur_key:
+            add_playtime(cur_key, time.time() - cur_start)
+        return proc.wait()
+
+    def page_stats(self, p):
+        self.heading(p, "Статистика", "Сколько времени ты провёл на серверах")
+        stats = load_json(STATS_FILE, {})
+        root = self.settings["root"]
+        servers = {server_key(*(s["ip"].rsplit(":", 1) if ":" in s["ip"] else (s["ip"], "25565"))): s
+                   for s in read_servers(root) if s.get("ip")}
+        top = sorted(stats.items(), key=lambda kv: kv[1], reverse=True)[:5]
+        total = sum(stats.values())
+
+        tk.Label(p, text=f"Всего в играх: {fmt_hours(total)}", bg=BG, fg=RED,
+                 font=(FONT, 11, "bold")).pack(anchor="w", pady=(0, 8))
+        if not top:
+            tk.Label(p, text="Пока пусто. Зайди на сервер, и время начнёт считаться.",
+                     bg=BG, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=10)
+            return
+
+        self._icons = []
+        for rank, (key, seconds) in enumerate(top, 1):
+            srv = servers.get(key, {})
+            name = srv.get("name") or key
+            pn = Panel(p)
+            pn.pack(fill="x", pady=3)
+            r = tk.Frame(pn.inner, bg=PANEL)
+            r.pack(fill="x")
+            tk.Label(r, text=str(rank), bg=PANEL, fg=GREY, font=(FONT, 12, "bold"), width=2).pack(side="left")
+            icon = None
+            if srv.get("icon"):
+                try:
+                    img = tk.PhotoImage(data=srv["icon"].split(",", 1)[-1])
+                    self._icons.append(img)
+                    icon = img
+                except tk.TclError:
+                    icon = None
+            if icon:
+                c = tk.Canvas(r, width=48, height=48, bg=PANEL, highlightthickness=0, bd=0)
+                c.create_image(24, 24, image=icon)
+                c.pack(side="left", padx=(6, 12))
+            else:
+                Avatar(r, name).pack(side="left", padx=(6, 12))
+            info = tk.Frame(r, bg=PANEL)
+            info.pack(side="left", fill="x", expand=True)
+            tk.Label(info, text=name, bg=PANEL, fg=TEXT, font=(FONT, 12, "bold")).pack(anchor="w")
+            tk.Label(info, text=key, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
+            tk.Label(r, text=fmt_hours(seconds), bg=PANEL, fg=RED, font=(FONT, 11, "bold")).pack(side="right", padx=10)
+
+    # ---------- Вылет / закрытие игры ----------
+    def on_game_exit(self, code, root, version, started):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.show_crash_dialog(code, root, version, started)
+
+    def show_crash_dialog(self, code, root, version, started):
+        log_text = build_log_text(root, started)
+        win = tk.Toplevel(self, bg=BG)
+        win.title("Minecraft")
+        win.resizable(False, False)
+        win.transient(self)
+        win.geometry("660x520")
+        pn = Panel(win, bg=BG)
+        pn.pack(fill="both", expand=True, padx=18, pady=18)
+
+        tk.Label(pn.inner, text="Упс, походу у вас проблемки", bg=PANEL, fg=RED,
+                 font=(FONT, 16, "bold")).pack(anchor="w")
+        tk.Label(pn.inner, text=f"Minecraft {version} завершился с кодом {code}",
+                 bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(2, 10))
+
+        box = tk.Frame(pn.inner, bg=FIELD)
+        box.pack(fill="both", expand=True)
+        sb = tk.Scrollbar(box, bg=PANEL, troughcolor=FIELD, activebackground=RED, relief="flat", bd=0)
+        sb.pack(side="right", fill="y")
+        text = tk.Text(box, height=16, bg=FIELD, fg=TEXT, relief="flat", bd=0, highlightthickness=0,
+                       font=("Consolas", 9), wrap="none", yscrollcommand=sb.set)
+        text.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        sb.config(command=text.yview)
+        text.insert("1.0", log_text or "Логи не найдены. Возможно, игра закрылась до запуска.")
+        text.config(state="disabled")
+
+        row = tk.Frame(pn.inner, bg=PANEL)
+        row.pack(fill="x", pady=(12, 0))
+
+        def copy_logs():
+            win.clipboard_clear()
+            win.clipboard_append(log_text)
+
+        Btn(row, "Копировать логи", copy_logs, style="ghost", bg=PANEL, h=34).pack(side="left")
+        Btn(row, "Папка логов", lambda: open_folder(os.path.join(root, "logs")),
+            style="ghost", bg=PANEL, h=34).pack(side="left", padx=8)
+        Btn(row, "ОК", win.destroy, style="primary", bg=PANEL, h=34, size=11).pack(side="right")
+
+        win.grab_set()
+        win.focus_set()
+
     # ---------- Java ----------
     def java_section(self, p):
         pn = Panel(p)
@@ -975,8 +1226,12 @@ class App(tk.Tk):
             }
             self.set_status("Запуск игры...")
             command = mll.command.get_minecraft_command(version, root, options)
-            subprocess.Popen(command, cwd=root)
+            started = time.time()
+            proc = subprocess.Popen(command, cwd=root)
             self.set_status(f"Minecraft {version} запущен")
+            self.ui(self.withdraw)
+            code = self.monitor_game(proc, root)
+            self.ui(lambda: self.on_game_exit(code, root, version, started))
         except Exception as e:
             self.set_status("Ошибка запуска")
             msg = str(e)
