@@ -71,6 +71,55 @@ def open_folder(path):
         pass
 
 
+JAVA_PATTERNS = [
+    r"C:\Program Files\Java\*\bin\javaw.exe",
+    r"C:\Program Files (x86)\Java\*\bin\javaw.exe",
+    r"C:\Program Files\Eclipse Adoptium\*\bin\javaw.exe",
+    r"C:\Program Files\Microsoft\jdk-*\bin\javaw.exe",
+    r"C:\Program Files\Zulu\*\bin\javaw.exe",
+    r"C:\Program Files\BellSoft\*\bin\javaw.exe",
+]
+
+
+def find_javas():
+    import glob
+    cands = []
+    jh = os.environ.get("JAVA_HOME")
+    if jh:
+        cands.append(os.path.join(jh, "bin", "javaw.exe"))
+    for pat in JAVA_PATTERNS:
+        cands += glob.glob(pat)
+    seen, result = set(), []
+    for c in cands:
+        if os.path.isfile(c):
+            key = os.path.normcase(os.path.normpath(c))
+            if key not in seen:
+                seen.add(key)
+                result.append(c)
+    return result
+
+
+def java_major(path):
+    """Возвращает основную версию Java (8, 17, 21...) или None."""
+    checker = os.path.join(os.path.dirname(path), "java.exe")
+    if not os.path.isfile(checker):
+        checker = path
+    try:
+        out = subprocess.run([checker, "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             universal_newlines=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        text = (out.stderr or "") + (out.stdout or "")
+    except Exception:
+        return None
+    m = re.search(r'version "(\d+)(?:\.(\d+))?', text)
+    if not m:
+        return None
+    major = int(m.group(1))
+    if major == 1 and m.group(2):
+        major = int(m.group(2))
+    return major
+
+
 def lerp(a, b, t):
     ra, ga, ba = int(a[1:3], 16), int(a[3:5], 16), int(a[5:7], 16)
     rb, gb, bb = int(b[1:3], 16), int(b[3:5], 16), int(b[5:7], 16)
@@ -371,11 +420,13 @@ class App(tk.Tk):
         self.settings.setdefault("ram", 4096)
         self.settings.setdefault("snapshots", False)
         self.settings.setdefault("account", None)
+        self.settings.setdefault("java", "")
         self.accounts = load_json(ACCOUNTS_FILE, [])
 
         self.ram_var = tk.IntVar(value=self.settings["ram"])
         self.version_cache = None
         self.visible_versions = []
+        self.java_cache = None
         self.current = None
         self.page = None
         self.outgoing = None
@@ -787,6 +838,7 @@ class App(tk.Tk):
             tk.Label(left, text=title, bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
             tk.Label(left, text=value, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(anchor="w")
             Btn(r, btn, cmd, style=style, bg=PANEL, h=30, size=9).pack(side="right")
+        self.java_section(p)
 
     def change_root(self):
         path = filedialog.askdirectory()
@@ -799,6 +851,82 @@ class App(tk.Tk):
         self.settings["root"] = DEFAULT_ROOT
         self.save_settings()
         self.show_page("settings", animate=False)
+
+    # ---------- Java ----------
+    def java_section(self, p):
+        pn = Panel(p)
+        pn.pack(fill="x", pady=4)
+        head = tk.Frame(pn.inner, bg=PANEL)
+        head.pack(fill="x")
+        tk.Label(head, text="Java для игры", bg=PANEL, fg=TEXT, font=(FONT, 11, "bold")).pack(side="left")
+        Btn(head, "Указать вручную", self.pick_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right")
+        Btn(head, "Авто", self.auto_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right", padx=6)
+        self.java_box = tk.Frame(pn.inner, bg=PANEL)
+        self.java_box.pack(fill="x", pady=(8, 0))
+        if self.java_cache is None:
+            tk.Label(self.java_box, text="Поиск установленных Java...", bg=PANEL, fg=GREY,
+                     font=(FONT, 9)).pack(anchor="w")
+            threading.Thread(target=self._scan_java, daemon=True).start()
+        else:
+            self.fill_java_list()
+
+    def _scan_java(self):
+        found = [(path, java_major(path)) for path in find_javas()]
+        self.java_cache = found
+        self.ui(self.fill_java_list)
+
+    def fill_java_list(self):
+        for w in self.java_box.winfo_children():
+            w.destroy()
+        cur = self.settings.get("java") or ""
+        if not self.java_cache:
+            tk.Label(self.java_box, text="Java не найдена автоматически. Укажи javaw.exe вручную.",
+                     bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
+        for path, major in self.java_cache:
+            r = tk.Frame(self.java_box, bg=PANEL)
+            r.pack(fill="x", pady=2)
+            ok = major is not None and major >= 21
+            tk.Label(r, text=f"Java {major}" if major else "версия неизвестна", bg=PANEL,
+                     fg=TEXT if ok else "#ff6b74", font=(FONT, 10, "bold"), width=14,
+                     anchor="w").pack(side="left")
+            tk.Label(r, text=path, bg=PANEL, fg=GREY, font=(FONT, 8), anchor="w").pack(
+                side="left", fill="x", expand=True)
+            selected = path == cur
+            Btn(r, "Выбрана" if selected else "Выбрать", lambda p=path: self.set_java(p),
+                style="soft" if selected else "ghost", bg=PANEL, h=26, size=9).pack(side="right")
+        if cur and cur not in [p for p, _ in self.java_cache]:
+            tk.Label(self.java_box, text=f"Вручную выбрано: {cur}", bg=PANEL, fg=GREY,
+                     font=(FONT, 8)).pack(anchor="w", pady=(4, 0))
+
+    def set_java(self, path):
+        self.settings["java"] = path
+        self.save_settings()
+        self.show_page("settings", animate=False)
+
+    def auto_java(self):
+        self.set_java("")
+
+    def pick_java(self):
+        path = filedialog.askopenfilename(filetypes=[("Java", "*.exe"), ("Все файлы", "*.*")])
+        if not path:
+            return
+        major = java_major(path)
+        if major is None:
+            return messagebox.showerror("Ошибка", "Не удалось определить версию Java по этому файлу")
+        if major < 21:
+            return messagebox.showerror("Ошибка", f"Для Minecraft 1.21.4 нужна Java 21 или новее. Выбрана Java {major}.")
+        self.set_java(path)
+
+    def resolve_java(self):
+        """Путь к Java для запуска: выбранная вручную, либо автоматически найденная 21+, либо java из PATH."""
+        manual = self.settings.get("java") or ""
+        if manual:
+            return manual
+        for path in find_javas():
+            major = java_major(path)
+            if major is not None and major >= 21:
+                return path
+        return "java"
 
     # ---------- Запуск ----------
     def start_game(self):
@@ -814,6 +942,12 @@ class App(tk.Tk):
     def _launch(self, acc, root, version, ram):
         try:
             os.makedirs(root, exist_ok=True)
+            java = self.resolve_java()
+            major = java_major(java)
+            if major is None or major < 21:
+                raise RuntimeError(f"Для Minecraft {version} нужна Java 21 или новее. "
+                                   f"Сейчас используется: {java} (версия {major}). "
+                                   f"Укажи подходящую Java в Настройки → Java.")
             installed = [v["id"] for v in mll.utils.get_installed_versions(root)]
             if version not in installed:
                 state = {"max": 1}
@@ -837,6 +971,7 @@ class App(tk.Tk):
                 "token": "",
                 "jvmArguments": [f"-Xmx{ram}M", f"-Xms{min(ram, 1024)}M"],
                 "gameDirectory": root,
+                "executablePath": java,
             }
             self.set_status("Запуск игры...")
             command = mll.command.get_minecraft_command(version, root, options)
