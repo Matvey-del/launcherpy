@@ -66,6 +66,14 @@ def hash_password(password, salt=None):
     return salt, digest
 
 
+def offline_uuid(name):
+    """UUID офлайн-игрока, как его считает сам Minecraft (MD5 от 'OfflinePlayer:имя')."""
+    md5 = bytearray(hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest())
+    md5[6] = (md5[6] & 0x0F) | 0x30
+    md5[8] = (md5[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(md5)))
+
+
 def open_folder(path):
     os.makedirs(path, exist_ok=True)
     try:
@@ -751,7 +759,7 @@ class App(tk.Tk):
             info.pack(side="left", fill="x", expand=True)
             tk.Label(info, text=acc["name"], bg=PANEL, fg=RED if is_cur else TEXT,
                      font=(FONT, 13, "bold")).pack(anchor="w")
-            caption = ("выбран" if is_cur else "аккаунт") + (" · с паролем" if acc.get("password_hash") else "")
+            caption = ("выбран" if is_cur else "офлайн-аккаунт") + (" · с паролем" if acc.get("password_hash") else "")
             tk.Label(info, text=caption, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
             Btn(pn.inner, "Удалить", lambda n=acc["name"]: self.delete_account(n), style="danger",
                 bg=PANEL, h=30, size=9).pack(side="right", padx=(6, 0))
@@ -780,7 +788,7 @@ class App(tk.Tk):
             return messagebox.showwarning("Ошибка", "Имя: 1–16 символов, только латиница, цифры и _")
         if any(a["name"].lower() == name.lower() for a in self.accounts):
             return messagebox.showwarning("Ошибка", "Аккаунт с таким именем уже есть")
-        acc = {"name": name, "uuid": str(uuid.uuid4())}
+        acc = {"name": name, "uuid": offline_uuid(name)}
         pwd = self.pass_field.raw()
         if pwd:
             acc["salt"], acc["password_hash"] = hash_password(pwd)
