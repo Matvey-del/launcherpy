@@ -1128,6 +1128,108 @@ class App(tk.Tk):
             style="primary", bg="#252525", h=34, size=9,
             stretch=True).pack(fill="x", pady=(10, 0))
 
+    def page_accounts(self, p):
+        self.heading(p, "Аккаунты", "Профили для запуска игры")
+        if not self.accounts:
+            tk.Label(p, text="Аккаунтов пока нет. Создай первый ниже.",
+                     bg=BG, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=(0, 6))
+        for acc in self.accounts:
+            is_cur = acc["name"] == self.settings.get("account")
+            pn = Panel(p)
+            pn.pack(fill="x", pady=3)
+            Avatar(pn.inner, acc["name"]).pack(side="left", padx=(0, 12))
+            info = tk.Frame(pn.inner, bg=PANEL)
+            info.pack(side="left", fill="x", expand=True)
+            tk.Label(info, text=acc["name"], bg=PANEL, fg=RED if is_cur else TEXT,
+                     font=(FONT, 13, "bold")).pack(anchor="w")
+            caption = ("выбран" if is_cur else "офлайн-аккаунт") + (" · с паролем" if acc.get("password_hash") else "")
+            tk.Label(info, text=caption, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
+            Btn(pn.inner, "Удалить", lambda n=acc["name"]: self.delete_account(n), style="danger",
+                bg=PANEL, h=30, size=9).pack(side="right", padx=(6, 0))
+            if not is_cur:
+                Btn(pn.inner, "Выбрать", lambda n=acc["name"]: self.select_account(n), style="soft",
+                    bg=PANEL, h=30, size=9).pack(side="right")
+
+        form = Panel(p)
+        form.pack(fill="x", pady=(12, 0))
+        tk.Label(form.inner, text="Новый аккаунт", bg=PANEL, fg=TEXT,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
+        tk.Label(form.inner, text="Имя: 1–16 символов, латиница, цифры и _", bg=PANEL,
+                 fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
+        self.name_field = Field(form.inner, bg=PANEL)
+        self.name_field.pack(fill="x")
+        tk.Label(form.inner, text="Пароль для входа в лаунчер (необязательно)", bg=PANEL,
+                 fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
+        self.pass_field = Field(form.inner, show="*", bg=PANEL)
+        self.pass_field.pack(fill="x")
+        Btn(form.inner, "Добавить аккаунт", self.add_account, style="primary", size=10,
+            h=34).pack(anchor="e", pady=(12, 0))
+
+    def add_account(self):
+        name = self.name_field.get()
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,16}", name):
+            return messagebox.showwarning("Ошибка", "Имя: 1–16 символов, только латиница, цифры и _")
+        if any(a["name"].lower() == name.lower() for a in self.accounts):
+            return messagebox.showwarning("Ошибка", "Аккаунт с таким именем уже есть")
+        acc = {"name": name, "uuid": offline_uuid(name)}
+        pwd = self.pass_field.raw()
+        if pwd:
+            acc["salt"], acc["password_hash"] = hash_password(pwd)
+        self.accounts.append(acc)
+        save_json(ACCOUNTS_FILE, self.accounts)
+        if not self.current_account():
+            self.settings["account"] = name
+            self.save_settings()
+        self.show_page("accounts", animate=False)
+
+    def ask_password(self, name):
+        win = tk.Toplevel(self, bg=BG)
+        win.title("Вход")
+        win.resizable(False, False)
+        win.transient(self)
+        win.geometry("360x240")
+        res = {"v": None}
+        pn = Panel(win, bg=BG)
+        pn.pack(fill="both", expand=True, padx=18, pady=18)
+        tk.Label(pn.inner, text=f"Пароль для {name}", bg=PANEL, fg=TEXT,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
+        field = Field(pn.inner, show="*", bg=PANEL)
+        field.pack(fill="x", pady=12)
+
+        def ok(_=None):
+            res["v"] = field.raw()
+            win.destroy()
+        field.entry.bind("<Return>", ok)
+        Btn(pn.inner, "Войти", ok, style="primary", h=34).pack(anchor="e")
+        win.grab_set()
+        field.entry.focus_set()
+        self.wait_window(win)
+        return res["v"]
+
+    def select_account(self, name):
+        acc = next(a for a in self.accounts if a["name"] == name)
+        if acc.get("password_hash"):
+            pwd = self.ask_password(name)
+            if pwd is None:
+                return
+            _, digest = hash_password(pwd, acc["salt"])
+            if digest != acc["password_hash"]:
+                return messagebox.showerror("Ошибка", "Неверный пароль")
+        self.settings["account"] = name
+        self.save_settings()
+        self.show_page("accounts", animate=False)
+
+    def delete_account(self, name):
+        if not messagebox.askyesno("Удаление", f"Удалить аккаунт {name}?"):
+            return
+        self.accounts = [a for a in self.accounts if a["name"] != name]
+        save_json(ACCOUNTS_FILE, self.accounts)
+        if self.settings.get("account") == name:
+            self.settings["account"] = None
+            self.save_settings()
+        self.show_page("accounts", animate=False)
+
+
     def page_stats(self, p):
         self.heading(p, "Статистика", "Сколько времени ты провёл на серверах")
         stats = load_json(STATS_FILE, {})
