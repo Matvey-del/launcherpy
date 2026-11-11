@@ -1,4 +1,4 @@
-import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct, zipfile
+import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct, zipfile, sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
@@ -8,8 +8,24 @@ try:
 except Exception:
     mll_runtime = None
 
-# Legacy storage path retained so existing profiles, settings and installed game files remain available.
-APP_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "RedLauncher")
+# Enable crisp rendering on Windows 10/11 before Tk creates the first window.
+def enable_windows_dpi_awareness():
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+enable_windows_dpi_awareness()
+
+# Keep user data in the roaming profile; preserve the existing RedLauncher folder.
+ROAMING_DIR = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
+APP_DIR = os.path.join(ROAMING_DIR, "RedLauncher")
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ACCOUNTS_FILE = os.path.join(APP_DIR, "profiles.json")
 STATS_FILE = os.path.join(APP_DIR, "stats.json")
@@ -35,7 +51,7 @@ MUTED = "#789596"
 FONT = "Segoe UI"
 
 # Profile artwork bundled with the launcher. GIF is supported by Tkinter on Windows 7.
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 ASSET_DIR = os.path.join(BASE_DIR, "assets")
 AVATAR_FILES = {
     32: os.path.join(ASSET_DIR, "steve_32.gif"),
@@ -817,7 +833,8 @@ class App(tk.Tk):
             w, h = max(1, self.winfo_width()), max(1, self.winfo_height())
             image = Image.open(self._wallpaper_source).convert("RGB")
             ratio = max(w / image.width, h / image.height)
-            image = image.resize((int(image.width * ratio), int(image.height * ratio)), Image.Resampling.LANCZOS)
+            resampling = getattr(Image, "Resampling", Image)
+            image = image.resize((int(image.width * ratio), int(image.height * ratio)), resampling.LANCZOS)
             left = max(0, (image.width - w) // 2)
             top = max(0, (image.height - h) // 2)
             image = image.crop((left, top, left + w, top + h))
