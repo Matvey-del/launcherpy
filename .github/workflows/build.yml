@@ -1,30 +1,62 @@
-name: Build exe
+name: Build STIVOX Launcher
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "redesign/**"
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    # Windows Server 2022 runner produces a Windows desktop executable
+    # compatible with supported Windows 10 and Windows 11 systems.
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out source
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.8"
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install minecraft-launcher-lib==6.5 pyinstaller==5.13.2
+          python -m pip install minecraft-launcher-lib==6.5 pyinstaller==6.11.1 Pillow==11.0.0
 
-      - name: Check syntax
+      - name: Check Python syntax
         run: python -m py_compile launcher.py
 
-      - name: Build exe
-        run: python -m PyInstaller --onefile --noconsole --name RedLauncher launcher.py
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          $args = @(
+            "--onefile",
+            "--noconsole",
+            "--clean",
+            "--name", "STIVOXLauncher",
+            "--collect-all", "minecraft_launcher_lib"
+          )
+          if (Test-Path "assets") {
+            $args += @("--add-data", "assets;assets")
+          }
+          python -m PyInstaller @args launcher.py
 
-      - uses: actions/upload-artifact@v5
+      - name: Verify executable
+        run: |
+          if (!(Test-Path "dist/STIVOXLauncher.exe")) {
+            throw "PyInstaller did not produce STIVOXLauncher.exe"
+          }
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
         with:
-          name: RedLauncher
-          path: dist/RedLauncher.exe
+          name: STIVOXLauncher-Windows
+          path: dist/STIVOXLauncher.exe
+          if-no-files-found: error
