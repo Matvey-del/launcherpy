@@ -780,8 +780,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("STIVOX LAUNCHER 3.1 · Minecraft")
-        self.geometry("1040x700")
-        self.minsize(900, 620)
+        self.geometry("760x520")
+        self.minsize(560, 400)
         self.configure(bg=BG)
         self._wallpaper_photo = None
         self._wallpaper_label = None
@@ -863,15 +863,6 @@ class App(tk.Tk):
         self.stage = tk.Frame(self, bg=BG)
         self.stage.place(relx=0.5, rely=0.5, anchor="center",
                          relwidth=1, relheight=1)
-        self.bind("<Configure>", self._center_panel)
-
-    def _center_panel(self, event=None):
-        # Keep the compact launcher card centered when the window is resized.
-        if event is not None and event.widget is not self:
-            return
-        if self.page is not None and alive(self.page):
-            self.page.place(relx=0.5, rely=0.5, anchor="center")
-
     def show_page(self, key, animate=True):
         # Secondary destinations live under the "Ещё" section in the bottom dock.
         active_key = key if key in self.nav else "more"
@@ -1008,9 +999,9 @@ class App(tk.Tk):
                        activebackground="#252525", activeforeground="#ffffff",
                        selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
                        highlightthickness=0).pack(anchor="w")
-        self.auto_update_var = tk.BooleanVar(value=bool(self.settings.get("check_updates", True)))
-        tk.Checkbutton(options, text="Проверять обновления", variable=self.auto_update_var,
-                       command=self._save_home_options, bg="#252525", fg="#dddddd",
+        self.snapshots_var = tk.BooleanVar(value=bool(self.settings.get("snapshots", False)))
+        tk.Checkbutton(options, text="Показывать снапшоты", variable=self.snapshots_var,
+                       command=self._save_home_snapshots, bg="#252525", fg="#dddddd",
                        activebackground="#252525", activeforeground="#ffffff",
                        selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
                        highlightthickness=0).pack(anchor="w")
@@ -1083,7 +1074,10 @@ class App(tk.Tk):
 
     def _save_home_options(self):
         self.settings["delayed_launch"] = bool(self.delayed_launch_var.get())
-        self.settings["check_updates"] = bool(self.auto_update_var.get())
+        self.save_settings()
+
+    def _save_home_snapshots(self):
+        self.settings["snapshots"] = bool(self.snapshots_var.get())
         self.save_settings()
 
     def _home_launch(self):
