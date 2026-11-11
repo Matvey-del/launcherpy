@@ -36,18 +36,19 @@ NAV = [("play", "Играть"), ("versions", "Версии"), ("servers", "Се
 
 LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
 
-BG = "#14252b"
-SIDE = "#172c32"
-PANEL = "#1d353b"
-FIELD = "#12252b"
-LINE = "#42616a"
-SHADOW = "#0a171c"
-RED = "#53c9bd"
-RED_HI = "#82e6d8"
-RED_DARK = "#174b4a"
-TEXT = "#f2fbfa"
-GREY = "#b1c8c8"
-MUTED = "#789596"
+# Monochrome palette: charcoal surfaces, soft greys and clean white accents.
+BG = "#111111"
+SIDE = "#191919"
+PANEL = "#242424"
+FIELD = "#303030"
+LINE = "#505050"
+SHADOW = "#080808"
+RED = "#eeeeee"
+RED_HI = "#ffffff"
+RED_DARK = "#555555"
+TEXT = "#f5f5f5"
+GREY = "#b8b8b8"
+MUTED = "#858585"
 FONT = "Segoe UI"
 
 # Profile artwork bundled with the launcher. GIF is supported by Tkinter on Windows 7.
@@ -527,12 +528,12 @@ class Panel(tk.Canvas):
 class Btn(tk.Canvas):
     """Скруглённая кнопка с плавной сменой цвета при наведении."""
     STYLES = {
-        "primary": (RED, RED_HI, TEXT),
-        "soft": ("#174b4a", "#226a65", TEXT),
-        "ghost": ("#203940", "#2b4b52", TEXT),
-        "danger": ("#3a2022", "#512a2d", "#ff9b9f"),
-        "nav": ("#172c32", "#23434a", "#b1c8c8"),
-        "nav_on": ("#185653", "#24766e", "#ffffff"),
+        "primary": ("#eeeeee", "#ffffff", "#111111"),
+        "soft": ("#4a4a4a", "#5a5a5a", "#ffffff"),
+        "ghost": ("#383838", "#505050", "#eeeeee"),
+        "danger": ("#4a3333", "#644444", "#ffffff"),
+        "nav": ("#252525", "#3a3a3a", "#b8b8b8"),
+        "nav_on": ("#555555", "#666666", "#ffffff"),
     }
 
     def __init__(self, parent, text, cmd, style="primary", bg=PANEL, size=10, h=34,
@@ -851,64 +852,25 @@ class App(tk.Tk):
             pass
 
     def build_shell(self):
-        """Compact glass-style shell: narrow left navigation and a clean content stage."""
-        self._resize_wallpaper()
-        main = tk.Frame(self, bg=BG, highlightthickness=1, highlightbackground=LINE)
-        main.place(x=16, y=16, relwidth=1, relheight=1, width=-32, height=-32)
-
-        topbar = tk.Frame(main, bg=SIDE, height=54)
-        topbar.pack(side="top", fill="x")
-        topbar.pack_propagate(False)
-
-        brand = tk.Frame(topbar, bg=SIDE)
-        brand.pack(side="left", fill="y", padx=(18, 0))
-        tk.Label(brand, text="STIVOX", bg=SIDE, fg=RED,
-                 font=(FONT, 19, "bold")).pack(side="left", pady=(7, 0))
-        tk.Label(brand, text="  MINECRAFT", bg=SIDE, fg=GREY,
-                 font=(FONT, 8, "bold")).pack(side="left", pady=(14, 0))
-        tk.Frame(topbar, bg=LINE, width=1, height=26).pack(side="left", padx=18, pady=14)
-
-        self.header_title = tk.Label(topbar, text="ИГРАТЬ", bg=SIDE, fg=TEXT,
-                                     font=(FONT, 10, "bold"))
-        self.header_title.pack(side="left", anchor="center")
-
-        right = tk.Frame(topbar, bg=SIDE)
-        right.pack(side="right", fill="y", padx=14)
-        self.top_status = tk.Label(right, text="● ГОТОВ", bg=SIDE, fg="#8fe0b1",
-                                   font=(FONT, 8, "bold"))
-        self.top_status.pack(side="left", padx=(0, 12), pady=17)
-        self.header_meta = tk.Label(right, text="Без аккаунта · Vanilla 1.21.4",
-                                    bg=SIDE, fg=GREY, font=(FONT, 8))
-        self.header_meta.pack(side="left", padx=(0, 12), pady=17)
-        Btn(right, "ПАПКА", lambda: open_folder(self.settings["root"]),
-            style="ghost", bg=SIDE, h=29, size=8).pack(side="left", pady=12)
-
-        body = tk.Frame(main, bg=BG)
-        body.pack(fill="both", expand=True, padx=12, pady=12)
-
-        nav_shell = tk.Frame(body, bg=SIDE, width=142,
-                             highlightthickness=1, highlightbackground=LINE)
-        nav_shell.pack(side="left", fill="y", padx=(0, 12))
-        nav_shell.pack_propagate(False)
-        tk.Label(nav_shell, text="МЕНЮ", bg=SIDE, fg=MUTED,
-                 font=(FONT, 7, "bold")).pack(anchor="w", padx=13, pady=(13, 8))
+        """Minimal launcher shell: a single compact panel centered on a dark canvas."""
+        self.configure(bg=BG)
         self.nav = {}
-        nav_labels = {
-            "play": "⌂   Играть", "versions": "▤   Версии", "servers": "◎   Серверы",
-            "mods": "▦   Моды", "worlds": "▣   Миры", "more": "···   Ещё"
-        }
-        for key, _title in NAV:
-            b = Btn(nav_shell, nav_labels[key], lambda k=key: self.show_page(k),
-                    style="nav", bg=SIDE, size=8, h=39, width=122,
-                    stretch=True, align="left")
-            b.pack(side="top", fill="x", padx=8, pady=3)
-            self.nav[key] = b
-        tk.Frame(nav_shell, bg=LINE, height=1).pack(fill="x", padx=12, pady=10)
-        tk.Label(nav_shell, text="STIVOX 3.1", bg=SIDE, fg=MUTED,
-                 font=(FONT, 7, "bold")).pack(side="bottom", anchor="w", padx=13, pady=12)
+        self.header_title = tk.Label(self, text="STIVOX", bg=BG, fg=TEXT,
+                                     font=(FONT, 1))
+        self.header_meta = tk.Label(self, text="", bg=BG, fg=GREY, font=(FONT, 1))
+        self.top_status = tk.Label(self, text="● ГОТОВ", bg=BG, fg=GREY,
+                                   font=(FONT, 8, "bold"))
+        self.stage = tk.Frame(self, bg=BG)
+        self.stage.place(relx=0.5, rely=0.5, anchor="center",
+                         relwidth=1, relheight=1)
+        self.bind("<Configure>", self._center_panel)
 
-        self.stage = tk.Frame(body, bg=BG)
-        self.stage.pack(side="left", fill="both", expand=True)
+    def _center_panel(self, event=None):
+        # Keep the compact launcher card centered when the window is resized.
+        if event is not None and event.widget is not self:
+            return
+        if self.page is not None and alive(self.page):
+            self.page.place(relx=0.5, rely=0.5, anchor="center")
 
     def show_page(self, key, animate=True):
         # Secondary destinations live under the "Ещё" section in the bottom dock.
@@ -1005,898 +967,170 @@ class App(tk.Tk):
 
     # ---------- Главная ----------
     def page_play(self, p):
-        acc = self.current_account()
-        self.heading(p, "Добро пожаловать в STIVOX", "Быстрый запуск Minecraft и управление сборкой")
+        """Single-card start screen inspired by the supplied reference."""
+        shell = tk.Frame(p, bg=BG)
+        shell.place(relx=0.5, rely=0.5, anchor="center")
 
-        # Main launch area: two clearly separated columns.
-        columns = tk.Frame(p, bg=BG)
-        columns.pack(fill="x", pady=(4, 9))
+        card = tk.Frame(shell, bg="#252525", highlightthickness=1,
+                        highlightbackground="#555555", padx=26, pady=22)
+        card.pack()
 
-        hero = Panel(columns, fill="#203d42", radius=15)
-        hero.pack(side="left", fill="both", expand=True, padx=(0, 7))
-        row = tk.Frame(hero.inner, bg="#203d42")
-        row.pack(fill="both", expand=True)
-        tk.Label(row, text="ТЕКУЩАЯ СБОРКА", bg="#203d42", fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w")
-        tk.Label(row, text="Minecraft", bg="#203d42", fg=TEXT,
-                 font=(FONT, 21, "bold")).pack(anchor="w", pady=(5, 0))
-        tk.Label(row, text=self.settings["version"], bg="#203d42", fg=RED,
-                 font=(FONT, 12, "bold")).pack(anchor="w")
-        req, _component = java_requirement(self.settings.get("version"), self.settings.get("root"))
-        tk.Label(row, text=f"{LOADER_NAMES.get(self.settings.get('loader', 'vanilla'), 'Vanilla')}  ·  Java {req}",
-                 bg="#203d42", fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(4, 10))
-        Btn(row, "ЗАПУСТИТЬ  ▶", self.start_game, style="primary",
-            bg="#203d42", h=43, size=10, width=190).pack(anchor="w")
+        brand = tk.Label(card, text="STIVOX", bg="#252525", fg="#f2f2f2",
+                         font=(FONT, 19, "bold"))
+        brand.pack(anchor="center", pady=(0, 13))
 
-        config = Panel(columns, fill="#1b3239", radius=15)
-        config.pack(side="left", fill="both", expand=True, padx=(7, 0))
-        tk.Label(config.inner, text="ПРОФИЛЬ", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w")
-        ar = tk.Frame(config.inner, bg="#1b3239")
-        ar.pack(fill="x", pady=(7, 10))
-        Avatar(ar, acc["name"] if acc else "?", bg="#1b3239", size=34).pack(side="left", padx=(0, 9))
-        namebox = tk.Frame(ar, bg="#1b3239")
-        namebox.pack(side="left", fill="x", expand=True)
-        tk.Label(namebox, text=acc["name"] if acc else "Аккаунт не выбран",
-                 bg="#1b3239", fg=TEXT, font=(FONT, 9, "bold")).pack(anchor="w")
-        tk.Label(namebox, text="Локальный профиль", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7)).pack(anchor="w")
-        Btn(config.inner, "СМЕНИТЬ АККАУНТ", lambda: self.show_page("accounts"),
-            style="ghost", bg="#1b3239", h=29, size=7, stretch=True).pack(fill="x")
+        # Account selector.
+        accounts = [a.get("name", "") for a in self.accounts if a.get("name")]
+        current = self.settings.get("account") or (accounts[0] if accounts else "")
+        self.home_account_var = tk.StringVar(value=current)
+        self.home_account_box = self._home_combo(card, self.home_account_var,
+                                                   accounts or ["Нет аккаунтов"])
+        self.home_account_box.pack(fill="x", pady=(0, 7))
+        self.home_account_box.bind("<<ComboboxSelected>>", self._home_account_changed)
 
-        # RAM and quick controls stay in their own compact card.
-        ram_panel = Panel(p, fill="#1b3239", radius=13)
-        ram_panel.pack(fill="x", pady=(0, 9))
-        rt = tk.Frame(ram_panel.inner, bg="#1b3239")
-        rt.pack(fill="x")
-        tk.Label(rt, text="ВЫДЕЛЕННАЯ ПАМЯТЬ", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7, "bold")).pack(side="left")
-        self.ram_label = tk.Label(rt, text="", bg="#1b3239", fg=RED, font=(FONT, 9, "bold"))
-        self.ram_label.pack(side="right")
-        max_ram = max(1024, min(4096, total_ram_mb() - 1024))
-        Slider(ram_panel.inner, self.ram_var, 1024, max_ram, 256,
-               cmd=self.update_ram_label, bg="#1b3239").pack(fill="x", pady=(5, 0))
-        self.update_ram_label()
+        # The game version and mod loader are presented together, as in the reference.
+        loader = self.settings.get("loader", "vanilla")
+        loader_label = LOADER_NAMES.get(loader, "Vanilla")
+        version_text = f"{loader_label} {self.settings.get('version', DEFAULT_VERSION)}"
+        self.home_version_var = tk.StringVar(value=version_text)
+        self.home_version_box = self._home_combo(
+            card, self.home_version_var,
+            [f"{name} {self.settings.get('version', DEFAULT_VERSION)}"
+             for name in LOADER_NAMES.values()])
+        self.home_version_box.pack(fill="x", pady=(0, 12))
+        self.home_version_box.bind("<<ComboboxSelected>>", self._home_version_changed)
 
-        lower = tk.Frame(p, bg=BG)
-        lower.pack(fill="x", pady=(0, 8))
-        tk.Label(lower, text="БЫСТРЫЙ ДОСТУП", bg=BG, fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w", pady=(0, 5))
-        shortcuts = tk.Frame(lower, bg=BG)
-        shortcuts.pack(fill="x")
-        shortcuts_list = [
-            ("Серверы", lambda: self.show_page("servers")),
-            ("Миры", lambda: self.show_page("worlds")),
-            ("Скриншоты", lambda: self.open_game_folder("screenshots")),
-            ("Ресурспаки", lambda: self.open_game_folder("resourcepacks")),
-            ("Логи", lambda: open_folder(os.path.join(self.settings["root"], "logs"))),
-            ("Папка игры", lambda: open_folder(self.settings["root"])),
-        ]
-        for label, cmd in shortcuts_list:
-            Btn(shortcuts, label, cmd, style="ghost", bg=BG, h=29, size=7,
-                stretch=True, width=95).pack(side="left", fill="x", expand=True, padx=2)
+        options = tk.Frame(card, bg="#252525")
+        options.pack(fill="x", pady=(0, 9))
+        self.delayed_launch_var = tk.BooleanVar(value=bool(self.settings.get("delayed_launch", False)))
+        tk.Checkbutton(options, text="Отложенный запуск", variable=self.delayed_launch_var,
+                       command=self._save_home_options, bg="#252525", fg="#dddddd",
+                       activebackground="#252525", activeforeground="#ffffff",
+                       selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
+                       highlightthickness=0).pack(anchor="w")
+        self.auto_update_var = tk.BooleanVar(value=bool(self.settings.get("check_updates", True)))
+        tk.Checkbutton(options, text="Проверять обновления", variable=self.auto_update_var,
+                       command=self._save_home_options, bg="#252525", fg="#dddddd",
+                       activebackground="#252525", activeforeground="#ffffff",
+                       selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
+                       highlightthickness=0).pack(anchor="w")
 
-        dashboard = tk.Frame(p, bg=BG)
-        dashboard.pack(fill="x", pady=(0, 5))
-        servers_card = Panel(dashboard, fill="#1b3239", radius=13)
-        servers_card.pack(side="left", fill="both", expand=True, padx=(0, 6))
-        sr_head = tk.Frame(servers_card.inner, bg="#1b3239")
-        sr_head.pack(fill="x")
-        tk.Label(sr_head, text="ИЗБРАННЫЕ СЕРВЕРЫ", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7, "bold")).pack(side="left")
-        Btn(sr_head, "Все", lambda: self.show_page("servers"), style="ghost",
-            bg="#1b3239", h=23, size=7).pack(side="right")
-        favorites = self.server_entries()[:2]
-        if not favorites:
-            tk.Label(servers_card.inner, text="Добавь сервер, чтобы подключаться в один клик.",
-                     bg="#1b3239", fg=GREY, font=(FONT, 8), wraplength=320).pack(anchor="w", pady=(8, 2))
-        for item in favorites:
-            rr = tk.Frame(servers_card.inner, bg="#1b3239")
-            rr.pack(fill="x", pady=(5, 0))
-            tk.Label(rr, text=item["name"], bg="#1b3239", fg=TEXT,
-                     font=(FONT, 8, "bold")).pack(side="left", anchor="w")
-            Btn(rr, "Играть", lambda a=item["address"]: self.start_game(a), style="soft",
-                bg="#1b3239", h=23, size=7).pack(side="right")
+        self.home_launch_btn = Btn(card, "ЗАПУСТИТЬ", self._home_launch,
+                                   style="primary", bg="#252525", h=47, size=13,
+                                   width=236)
+        self.home_launch_btn.pack(fill="x", pady=(0, 4))
 
-        activity = Panel(dashboard, fill="#1b3239", radius=13)
-        activity.pack(side="left", fill="both", expand=True, padx=(6, 0))
-        total_time = sum(load_json(STATS_FILE, {}).values())
-        tk.Label(activity.inner, text="ИГРОВАЯ АКТИВНОСТЬ", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w")
-        tk.Label(activity.inner, text=fmt_hours(total_time), bg="#1b3239", fg=TEXT,
-                 font=(FONT, 16, "bold")).pack(anchor="w", pady=(4, 0))
-        tk.Label(activity.inner, text="общее время в игре", bg="#1b3239", fg=GREY,
-                 font=(FONT, 7)).pack(anchor="w")
-        Btn(activity.inner, "Статистика", lambda: self.show_page("stats"),
-            style="ghost", bg="#1b3239", h=23, size=7).pack(anchor="w", pady=(5, 0))
+        actions = tk.Frame(card, bg="#252525")
+        actions.pack(fill="x")
+        actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="actions")
+        for col, (symbol, hint, command) in enumerate([
+            ("i", "Информация и аккаунты", lambda: self.show_page("more")),
+            ("▰", "Папка Minecraft", lambda: open_folder(self.settings["root"])),
+            ("↻", "Версии и загрузчики", lambda: self.show_page("versions")),
+            ("☰", "Меню и настройки", self._open_home_menu),
+        ]):
+            btn = Btn(actions, symbol, command, style="ghost", bg="#252525",
+                      h=34, size=13, width=52)
+            btn.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 3, 0))
+            btn.bind("<Enter>", lambda e, w=btn, t=hint: self._set_home_hint(t))
+            btn.bind("<Leave>", lambda e: self._set_home_hint(""))
 
-        self.progress = Progress(p)
-        self.progress.pack(fill="x", pady=(5, 3))
-        self.status = tk.Label(p, text="Готов к запуску", bg=BG, fg=GREY, font=(FONT, 8))
-        self.status.pack(anchor="w")
+        self.home_hint = tk.Label(card, text="", bg="#252525", fg="#999999",
+                                  font=(FONT, 8))
+        self.home_hint.pack(pady=(7, 0))
 
-    def open_game_folder(self, name):
-        open_folder(os.path.join(self.settings["root"], name))
-
-    def set_placeholder(self, field, value):
-        field.entry.insert(0, value)
-        field.entry.config(fg=MUTED)
-        def focus_in(_event=None):
-            if field.entry.get() == value:
-                field.entry.delete(0, "end")
-                field.entry.config(fg=TEXT)
-        def focus_out(_event=None):
-            if not field.entry.get().strip():
-                field.entry.insert(0, value)
-                field.entry.config(fg=MUTED)
-        field.entry.bind("<FocusIn>", focus_in)
-        field.entry.bind("<FocusOut>", focus_out)
-
-    def update_ram_label(self):
+    def _home_combo(self, parent, variable, values):
+        from tkinter import ttk
+        style = ttk.Style(self)
         try:
-            self.ram_label.config(text=f"{self.ram_var.get() / 1024:g} ГБ")
-        except (tk.TclError, AttributeError):
+            style.theme_use("clam")
+        except tk.TclError:
             pass
+        style.configure("Home.TCombobox", fieldbackground="#333333",
+                        background="#333333", foreground="#f0f0f0",
+                        arrowcolor="#eeeeee", bordercolor="#555555",
+                        lightcolor="#555555", darkcolor="#555555",
+                        padding=6, font=(FONT, 9))
+        style.map("Home.TCombobox",
+                  fieldbackground=[("readonly", "#333333")],
+                  foreground=[("readonly", "#f0f0f0")],
+                  selectbackground=[("readonly", "#444444")],
+                  selectforeground=[("readonly", "#ffffff")])
+        box = ttk.Combobox(parent, textvariable=variable, values=values,
+                           state="readonly", style="Home.TCombobox",
+                           font=(FONT, 9))
+        return box
 
-    # ---------- Серверы ----------
-    def server_entries(self):
-        items, seen = [], set()
-        # First include servers already saved by Minecraft itself.
-        for item in read_servers(self.settings["root"]):
-            addr = (item.get("ip") or "").strip()
-            if not addr:
-                continue
-            key = addr.lower()
-            if key not in seen:
-                seen.add(key)
-                items.append({"name": item.get("name") or addr, "address": addr, "source": "Minecraft"})
-        for item in self.settings.get("saved_servers", []) or []:
-            addr = (item.get("address") or "").strip()
-            key = addr.lower()
-            if addr and key not in seen:
-                seen.add(key)
-                items.append({"name": item.get("name") or addr, "address": addr, "source": "Избранное"})
-        return items
+    def _set_home_hint(self, value):
+        if hasattr(self, "home_hint") and alive(self.home_hint):
+            self.home_hint.config(text=value)
 
-    def parse_server_address(self, address):
-        value = (address or "").strip()
-        if value.startswith("[") and "]" in value:
-            host, tail = value[1:].split("]", 1)
-            port = tail[1:] if tail.startswith(":") else "25565"
-        elif value.count(":") == 1:
-            host, port = value.rsplit(":", 1)
+    def _home_account_changed(self, event=None):
+        name = self.home_account_var.get()
+        if any(a.get("name") == name for a in self.accounts):
+            self.select_account(name)
+            self.show_page("play", animate=False)
+
+    def _home_version_changed(self, event=None):
+        value = self.home_version_var.get()
+        loader_name, _, version = value.partition(" ")
+        loader = next((key for key, label in LOADER_NAMES.items()
+                       if label == loader_name), "vanilla")
+        self.settings["loader"] = loader
+        if version.strip():
+            self.settings["version"] = version.strip()
+        self.save_settings()
+
+    def _save_home_options(self):
+        self.settings["delayed_launch"] = bool(self.delayed_launch_var.get())
+        self.settings["check_updates"] = bool(self.auto_update_var.get())
+        self.save_settings()
+
+    def _home_launch(self):
+        self._save_home_options()
+        if self.delayed_launch_var.get():
+            self.home_launch_btn.config(state="disabled")
+            self.home_launch_btn.text = "ЗАПУСК ЧЕРЕЗ 5 СЕК."
+            self.home_launch_btn.paint()
+            self.after(5000, self._finish_delayed_launch)
         else:
-            host, port = value, "25565"
-        if not host or not re.fullmatch(r"[A-Za-z0-9._:-]+", host):
-            raise ValueError("Проверь адрес сервера")
-        if not str(port).isdigit() or not 1 <= int(port) <= 65535:
-            raise ValueError("Порт должен быть числом от 1 до 65535")
-        return host, str(int(port))
+            self.start_game()
 
-    def page_servers(self, p):
-        self.heading(p, "Серверы", "Подключайся в один клик к серверам из Minecraft или добавляй свои")
-        add = Panel(p, radius=12)
-        add.pack(fill="x", pady=(0, 8))
-        tk.Label(add.inner, text="ДОБАВИТЬ СЕРВЕР", bg=PANEL, fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w")
-        fields = tk.Frame(add.inner, bg=PANEL)
-        fields.pack(fill="x", pady=(6, 0))
-        self.server_name_field = Field(fields, bg=PANEL, h=34)
-        self.server_name_field.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.set_placeholder(self.server_name_field, "Название сервера")
-        self.server_addr_field = Field(fields, bg=PANEL, h=34)
-        self.server_addr_field.pack(side="left", fill="x", expand=True, padx=6)
-        self.set_placeholder(self.server_addr_field, "play.example.com:25565")
-        Btn(fields, "Добавить", self.add_server, style="primary", bg=PANEL,
-            h=34, size=8).pack(side="right", padx=(6, 0))
+    def _finish_delayed_launch(self):
+        if hasattr(self, "home_launch_btn") and alive(self.home_launch_btn):
+            self.home_launch_btn.config(state="normal")
+            self.home_launch_btn.text = "ЗАПУСТИТЬ"
+            self.home_launch_btn.paint()
+        self.start_game()
 
-        list_panel = Panel(p, radius=12)
-        list_panel.pack(fill="both", expand=True)
-        header = tk.Frame(list_panel.inner, bg=PANEL)
-        header.pack(fill="x", pady=(0, 5))
-        tk.Label(header, text="ТВОИ СЕРВЕРЫ", bg=PANEL, fg=TEXT,
-                 font=(FONT, 9, "bold")).pack(side="left")
-        items = self.server_entries()
-        tk.Label(header, text=f"{len(items)}", bg=PANEL, fg=RED,
-                 font=(FONT, 9, "bold")).pack(side="right")
-        if not items:
-            tk.Label(list_panel.inner, text="Список пока пуст. Добавь IP сервера выше или сохрани сервер в меню Minecraft.",
-                     bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=780,
-                     justify="left").pack(anchor="w", pady=12)
-        for item in items:
-            row = tk.Frame(list_panel.inner, bg=PANEL)
-            row.pack(fill="x", pady=3)
-            Avatar(row, item["name"], size=34).pack(side="left", padx=(0, 9))
-            info = tk.Frame(row, bg=PANEL)
-            info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=item["name"], bg=PANEL, fg=TEXT,
-                     font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(info, text=item["address"] + "  ·  " + item["source"], bg=PANEL,
-                     fg=GREY, font=(FONT, 8)).pack(anchor="w")
-            Btn(row, "ПОДКЛЮЧИТЬ", lambda a=item["address"]: self.start_game(a),
-                style="primary", bg=PANEL, h=30, size=8).pack(side="right")
-            if item["source"] == "Избранное":
-                Btn(row, "Убрать", lambda a=item["address"]: self.remove_server(a),
-                    style="ghost", bg=PANEL, h=30, size=8).pack(side="right", padx=(0, 6))
-
-    def add_server(self):
-        name = self.server_name_field.get()
-        address = self.server_addr_field.get()
-        if address == "play.example.com:25565":
-            address = ""
-        if name == "Название сервера":
-            name = ""
-        try:
-            self.parse_server_address(address)
-        except ValueError as exc:
-            return messagebox.showwarning("Адрес сервера", str(exc))
-        if not name or name == "Название сервера":
-            name = address
-        saved = self.settings.setdefault("saved_servers", [])
-        if any((x.get("address", "").lower() == address.lower()) for x in saved):
-            return messagebox.showinfo("Сервер", "Этот адрес уже есть в избранном")
-        saved.append({"name": name[:48], "address": address})
-        self.save_settings()
-        self.show_page("servers", animate=False)
-
-    def remove_server(self, address):
-        self.settings["saved_servers"] = [x for x in self.settings.get("saved_servers", [])
-                                           if x.get("address", "").lower() != address.lower()]
-        self.save_settings()
-        self.show_page("servers", animate=False)
-
-    # ---------- Миры и резервные копии ----------
-    def world_dir(self):
-        return os.path.join(self.settings["root"], "saves")
-
-    def page_worlds(self, p):
-        self.heading(p, "Миры", "Резервные копии миров — защити свои постройки перед обновлением модов")
-        bar = tk.Frame(p, bg=BG)
-        bar.pack(fill="x", pady=(0, 8))
-        Btn(bar, "СОЗДАТЬ БЭКАП МИРА", self.choose_world_backup, style="primary",
-            bg=BG, h=34, size=8).pack(side="left")
-        Btn(bar, "ВОССТАНОВИТЬ ИЗ ZIP", self.restore_world_backup, style="ghost",
-            bg=BG, h=34, size=8).pack(side="left", padx=7)
-        Btn(bar, "ОТКРЫТЬ ПАПКУ", lambda: open_folder(self.world_dir()), style="ghost",
-            bg=BG, h=34, size=8).pack(side="right")
-
-        panel = Panel(p, radius=12)
-        panel.pack(fill="both", expand=True)
-        saves = self.world_dir()
-        os.makedirs(saves, exist_ok=True)
-        worlds = []
-        for name in sorted(os.listdir(saves)):
-            path = os.path.join(saves, name)
-            if os.path.isdir(path) and os.path.isfile(os.path.join(path, "level.dat")):
-                try:
-                    modified = time.strftime("%d.%m.%Y %H:%M", time.localtime(os.path.getmtime(os.path.join(path, "level.dat"))))
-                except OSError:
-                    modified = "—"
-                worlds.append((name, modified))
-        top = tk.Frame(panel.inner, bg=PANEL)
-        top.pack(fill="x", pady=(0, 6))
-        tk.Label(top, text="ЛОКАЛЬНЫЕ МИРЫ", bg=PANEL, fg=TEXT,
-                 font=(FONT, 9, "bold")).pack(side="left")
-        tk.Label(top, text=str(len(worlds)), bg=PANEL, fg=RED,
-                 font=(FONT, 9, "bold")).pack(side="right")
-        if not worlds:
-            tk.Label(panel.inner, text="Миров пока нет. Создай мир в Minecraft — он появится здесь.",
-                     bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=15)
-        for name, modified in worlds:
-            row = tk.Frame(panel.inner, bg=PANEL)
-            row.pack(fill="x", pady=3)
-            Avatar(row, name, size=34).pack(side="left", padx=(0, 9))
-            info = tk.Frame(row, bg=PANEL)
-            info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=name, bg=PANEL, fg=TEXT,
-                     font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(info, text="Изменён: " + modified, bg=PANEL, fg=GREY,
-                     font=(FONT, 8)).pack(anchor="w")
-            Btn(row, "БЭКАП", lambda n=name: self.backup_world(n), style="soft",
-                bg=PANEL, h=29, size=8).pack(side="right")
-            Btn(row, "ПАПКА", lambda n=name: open_folder(os.path.join(saves, n)),
-                style="ghost", bg=PANEL, h=29, size=8).pack(side="right", padx=(0, 5))
-
-    def choose_world_backup(self):
-        saves = self.world_dir()
-        worlds = [n for n in os.listdir(saves) if os.path.isfile(os.path.join(saves, n, "level.dat"))]
-        if not worlds:
-            return messagebox.showinfo("Резервная копия", "Сохранённых миров пока нет.")
-        if len(worlds) == 1:
-            return self.backup_world(worlds[0])
-        win = tk.Toplevel(self, bg=BG)
-        win.title("Выбрать мир")
-        win.geometry("380x300")
-        win.transient(self)
-        pn = Panel(win, bg=BG)
-        pn.pack(fill="both", expand=True, padx=14, pady=14)
-        tk.Label(pn.inner, text="Какой мир сохранить?", bg=PANEL, fg=TEXT,
-                 font=(FONT, 11, "bold")).pack(anchor="w")
-        for name in worlds:
-            Btn(pn.inner, name, lambda n=name: (win.destroy(), self.backup_world(n)),
-                style="ghost", bg=PANEL, h=32, size=9, stretch=True).pack(fill="x", pady=3)
-        win.grab_set()
-
-    def backup_world(self, name):
-        source = os.path.join(self.world_dir(), name)
-        if not os.path.isfile(os.path.join(source, "level.dat")):
-            return messagebox.showerror("Бэкап", "Не найден level.dat. Папка не похожа на мир Minecraft.")
-        default = re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "_" + time.strftime("%Y%m%d_%H%M") + ".zip"
-        dest = filedialog.asksaveasfilename(title="Сохранить резервную копию", defaultextension=".zip",
-                                             initialfile=default, filetypes=[("ZIP archive", "*.zip")])
-        if not dest:
-            return
-        try:
-            with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
-                for base, dirs, files in os.walk(source):
-                    dirs[:] = [d for d in dirs if d not in ("session.lock",)]
-                    for filename in files:
-                        if filename.lower() == "session.lock":
-                            continue
-                        full = os.path.join(base, filename)
-                        rel = os.path.relpath(full, source)
-                        zf.write(full, os.path.join(name, rel))
-            messagebox.showinfo("Бэкап готов", "Резервная копия сохранена:\n" + dest)
-        except Exception as exc:
-            messagebox.showerror("Ошибка бэкапа", str(exc))
-
-    def restore_world_backup(self):
-        archive = filedialog.askopenfilename(title="Выбрать резервную копию",
-                                             filetypes=[("ZIP archive", "*.zip")])
-        if not archive:
-            return
-        try:
-            with zipfile.ZipFile(archive, "r") as zf:
-                infos = zf.infolist()
-                files = [i for i in infos if not i.is_dir()]
-                roots = set()
-                for item in infos:
-                    normalized = item.filename.replace("\\", "/")
-                    parts = normalized.split("/")
-                    if not normalized or normalized.startswith("/") or ".." in parts:
-                        raise ValueError("В архиве обнаружен небезопасный путь")
-                    if parts[0]:
-                        roots.add(parts[0])
-                    mode = (item.external_attr >> 16) & 0o170000
-                    if mode == 0o120000:
-                        raise ValueError("Архив содержит символическую ссылку")
-                level_files = [i for i in files if i.filename.replace("\\", "/").endswith("/level.dat")]
-                if not level_files or len(roots) != 1:
-                    raise ValueError("Не удалось распознать резервную копию мира STIVOX")
-                if zf.testzip() is not None:
-                    raise ValueError("ZIP-архив повреждён")
-                source_root = next(iter(roots))
-                dest_name = source_root
-                saves = self.world_dir()
-                target = os.path.join(saves, dest_name)
-                if os.path.exists(target):
-                    dest_name = source_root + "_restored_" + time.strftime("%Y%m%d_%H%M%S")
-                    target = os.path.join(saves, dest_name)
-                os.makedirs(target, exist_ok=True)
-                root_prefix = source_root + "/"
-                for item in infos:
-                    normalized = item.filename.replace("\\", "/")
-                    if not normalized.startswith(root_prefix):
-                        continue
-                    rel = normalized[len(root_prefix):]
-                    if not rel:
-                        continue
-                    output = os.path.abspath(os.path.join(target, *rel.split("/")))
-                    if os.path.commonpath([os.path.abspath(target), output]) != os.path.abspath(target):
-                        raise ValueError("Небезопасный путь в архиве")
-                    if item.is_dir():
-                        os.makedirs(output, exist_ok=True)
-                    else:
-                        os.makedirs(os.path.dirname(output), exist_ok=True)
-                        with zf.open(item, "r") as src_file, open(output, "wb") as dst_file:
-                            shutil.copyfileobj(src_file, dst_file)
-                if not os.path.isfile(os.path.join(target, "level.dat")):
-                    shutil.rmtree(target, ignore_errors=True)
-                    raise ValueError("В архиве не найден level.dat")
-            messagebox.showinfo("Восстановление", "Мир восстановлен как: " + dest_name)
-            self.show_page("worlds", animate=False)
-        except Exception as exc:
-            messagebox.showerror("Не удалось восстановить", str(exc))
-
-    # ---------- Раздел Ещё ----------
-    def page_more(self, p):
-        self.heading(p, "Ещё", "Управление профилем, статистикой и инструментами лаунчера")
-        grid = tk.Frame(p, bg=BG)
-        grid.pack(fill="x")
-        items = [
-            ("АККАУНТЫ", "Профили и переключение игрока", "Открыть", lambda: self.show_page("accounts")),
-            ("СТАТИСТИКА", "Время игры и любимые серверы", "Посмотреть", lambda: self.show_page("stats")),
-            ("ДИАГНОСТИКА", "Проверка модов и исправление ASM", "Проверить", lambda: self.show_page("doctor")),
-            ("НАСТРОЙКИ", "Java, папка игры и обслуживание", "Настроить", lambda: self.show_page("settings")),
-        ]
-        for idx, (title, desc, action, command) in enumerate(items):
-            card = Panel(grid, radius=12)
-            card.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=4, pady=4)
-            tk.Label(card.inner, text=title, bg=PANEL, fg=TEXT,
-                     font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(card.inner, text=desc, bg=PANEL, fg=GREY,
-                     font=(FONT, 8), wraplength=330).pack(anchor="w", pady=(4, 8))
-            Btn(card.inner, action, command, style="ghost", bg=PANEL,
-                h=29, size=8).pack(anchor="w")
-        grid.grid_columnconfigure(0, weight=1)
-        grid.grid_columnconfigure(1, weight=1)
-
-        folders = Panel(p, radius=12)
-        folders.pack(fill="x", pady=(9, 0))
-        tk.Label(folders.inner, text="ПАПКИ ИГРЫ", bg=PANEL, fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w", pady=(0, 6))
-        row = tk.Frame(folders.inner, bg=PANEL)
-        row.pack(fill="x")
-        for label, folder in (("Скриншоты", "screenshots"), ("Ресурспаки", "resourcepacks"),
-                              ("Шейдеры", "shaderpacks"), ("Логи", "logs"), ("Папка игры", "")):
-            path = self.settings["root"] if not folder else os.path.join(self.settings["root"], folder)
-            Btn(row, label, lambda x=path: open_folder(x), style="ghost", bg=PANEL,
-                h=29, size=8, stretch=True, width=100).pack(side="left", fill="x", expand=True, padx=3)
-
-    # ---------- Аккаунты ----------
-    def page_accounts(self, p):
-        self.heading(p, "Аккаунты", "Профили для запуска игры")
-        if not self.accounts:
-            tk.Label(p, text="Аккаунтов пока нет. Создай первый ниже.",
-                     bg=BG, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=(0, 6))
-        for acc in self.accounts:
-            is_cur = acc["name"] == self.settings.get("account")
-            pn = Panel(p)
-            pn.pack(fill="x", pady=3)
-            Avatar(pn.inner, acc["name"]).pack(side="left", padx=(0, 12))
-            info = tk.Frame(pn.inner, bg=PANEL)
-            info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=acc["name"], bg=PANEL, fg=RED if is_cur else TEXT,
-                     font=(FONT, 13, "bold")).pack(anchor="w")
-            caption = ("выбран" if is_cur else "офлайн-аккаунт") + (" · с паролем" if acc.get("password_hash") else "")
-            tk.Label(info, text=caption, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
-            Btn(pn.inner, "Удалить", lambda n=acc["name"]: self.delete_account(n), style="danger",
-                bg=PANEL, h=30, size=9).pack(side="right", padx=(6, 0))
-            if not is_cur:
-                Btn(pn.inner, "Выбрать", lambda n=acc["name"]: self.select_account(n), style="soft",
-                    bg=PANEL, h=30, size=9).pack(side="right")
-
-        form = Panel(p)
-        form.pack(fill="x", pady=(12, 0))
-        tk.Label(form.inner, text="Новый аккаунт", bg=PANEL, fg=TEXT,
-                 font=(FONT, 12, "bold")).pack(anchor="w")
-        tk.Label(form.inner, text="Имя: 1–16 символов, латиница, цифры и _", bg=PANEL,
-                 fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
-        self.name_field = Field(form.inner, bg=PANEL)
-        self.name_field.pack(fill="x")
-        tk.Label(form.inner, text="Пароль для входа в лаунчер (необязательно)", bg=PANEL,
-                 fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
-        self.pass_field = Field(form.inner, show="*", bg=PANEL)
-        self.pass_field.pack(fill="x")
-        Btn(form.inner, "Добавить аккаунт", self.add_account, style="primary", size=10,
-            h=34).pack(anchor="e", pady=(12, 0))
-
-    def add_account(self):
-        name = self.name_field.get()
-        if not re.fullmatch(r"[A-Za-z0-9_]{1,16}", name):
-            return messagebox.showwarning("Ошибка", "Имя: 1–16 символов, только латиница, цифры и _")
-        if any(a["name"].lower() == name.lower() for a in self.accounts):
-            return messagebox.showwarning("Ошибка", "Аккаунт с таким именем уже есть")
-        acc = {"name": name, "uuid": offline_uuid(name)}
-        pwd = self.pass_field.raw()
-        if pwd:
-            acc["salt"], acc["password_hash"] = hash_password(pwd)
-        self.accounts.append(acc)
-        save_json(ACCOUNTS_FILE, self.accounts)
-        if not self.current_account():
-            self.settings["account"] = name
-            self.save_settings()
-        self.show_page("accounts", animate=False)
-
-    def ask_password(self, name):
-        win = tk.Toplevel(self, bg=BG)
-        win.title("Вход")
+    def _open_home_menu(self):
+        win = tk.Toplevel(self)
+        win.title("STIVOX — меню")
+        win.configure(bg=BG)
         win.resizable(False, False)
         win.transient(self)
-        win.geometry("360x240")
-        res = {"v": None}
-        pn = Panel(win, bg=BG)
-        pn.pack(fill="both", expand=True, padx=18, pady=18)
-        tk.Label(pn.inner, text=f"Пароль для {name}", bg=PANEL, fg=TEXT,
-                 font=(FONT, 12, "bold")).pack(anchor="w")
-        field = Field(pn.inner, show="*", bg=PANEL)
-        field.pack(fill="x", pady=12)
-
-        def ok(_=None):
-            res["v"] = field.raw()
-            win.destroy()
-        field.entry.bind("<Return>", ok)
-        Btn(pn.inner, "Войти", ok, style="primary", h=34).pack(anchor="e")
-        win.grab_set()
-        field.entry.focus_set()
-        self.wait_window(win)
-        return res["v"]
-
-    def select_account(self, name):
-        acc = next(a for a in self.accounts if a["name"] == name)
-        if acc.get("password_hash"):
-            pwd = self.ask_password(name)
-            if pwd is None:
-                return
-            _, digest = hash_password(pwd, acc["salt"])
-            if digest != acc["password_hash"]:
-                return messagebox.showerror("Ошибка", "Неверный пароль")
-        self.settings["account"] = name
-        self.save_settings()
-        self.show_page("accounts", animate=False)
-
-    def delete_account(self, name):
-        if not messagebox.askyesno("Удаление", f"Удалить аккаунт {name}?"):
-            return
-        self.accounts = [a for a in self.accounts if a["name"] != name]
-        save_json(ACCOUNTS_FILE, self.accounts)
-        if self.settings.get("account") == name:
-            self.settings["account"] = None
-            self.save_settings()
-        self.show_page("accounts", animate=False)
-
-    # ---------- Версии ----------
-    def version_label(self):
-        return f"{LOADER_NAMES.get(self.settings.get('loader', 'vanilla'), 'Vanilla')} {self.settings['version']}"
-
-    def page_versions(self, p):
-        self.heading(p, "Версии", "Vanilla, Fabric и Forge для Minecraft")
-        tabs = Panel(p)
-        tabs.pack(fill="x")
-        row = tk.Frame(tabs.inner, bg=PANEL)
-        row.pack(fill="x")
-        for key, name in LOADER_NAMES.items():
-            Btn(row, name, lambda k=key: self.set_loader_tab(k),
-                style="soft" if key == self.loader_tab else "ghost",
-                bg=PANEL, h=30, size=9).pack(side="left", padx=(0, 6))
-        if self.loader_tab == "vanilla":
-            self.snap_var = tk.BooleanVar(value=self.settings["snapshots"])
-            tk.Label(row, text="Снапшоты", bg=PANEL, fg=GREY, font=(FONT, 9)).pack(side="right", padx=6)
-            Toggle(row, self.snap_var, cmd=self.on_snapshots_toggle, bg=PANEL).pack(side="right")
-
-        lp = Panel(p)
-        lp.pack(fill="x", pady=(10, 0))
-        self.version_status = tk.Label(lp.inner, text="", bg=PANEL, fg=GREY, font=(FONT, 9))
-        self.version_status.pack(anchor="w")
-        self.version_filter = Field(lp.inner, bg=PANEL, h=32)
-        self.version_filter.pack(fill="x", pady=(6, 3))
-        self.version_filter.entry.insert(0, "Поиск версии, например 1.21.4")
-        self.version_filter.entry.bind("<KeyRelease>", lambda e: self.fill_versions())
-        self.version_list = tk.Listbox(lp.inner, bg=FIELD, fg=TEXT, selectbackground=RED,
-                                       selectforeground=TEXT, relief="flat", font=(FONT, 10),
-                                       highlightthickness=0, bd=0, activestyle="none", height=8)
-        self.version_list.pack(fill="x", pady=6)
-        Btn(lp.inner, "Выбрать версию", self.choose_version, style="primary", h=34).pack(anchor="e")
-
-        if self.loader_tab in self.loader_cache:
-            self.fill_versions()
-        else:
-            self.load_loader_list(self.loader_tab)
-
-    def set_loader_tab(self, loader):
-        self.loader_tab = loader
-        self.show_page("versions", animate=False)
-
-    def load_loader_list(self, loader):
-        self.set_version_status("Загрузка списка...")
-
-        def work():
-            try:
-                if loader == "vanilla":
-                    items = [(v["id"], v["type"]) for v in mll.utils.get_version_list()]
-                elif loader == "fabric":
-                    items = [(v, "release") for v in mll.fabric.get_stable_minecraft_versions()]
-                else:
-                    seen = []
-                    for v in mll.forge.list_forge_versions():
-                        mc = v.split("-")[0]
-                        if mc not in seen:
-                            seen.append(mc)
-                    items = [(v, "release") for v in reversed(seen)]
-                self.loader_cache[loader] = items
-                self.ui(lambda: self.on_loader_list(loader))
-            except Exception as e:
-                self.ui(lambda: self.set_version_status(f"Не удалось загрузить список: {e}"))
-        threading.Thread(target=work, daemon=True).start()
-
-    def set_version_status(self, text):
-        self.ui(lambda: self.version_status.config(text=text))
-
-    def on_loader_list(self, loader):
-        if loader == self.loader_tab:
-            self.fill_versions()
-
-    def fill_versions(self):
-        items = self.loader_cache.get(self.loader_tab, [])
-        snap = self.loader_tab == "vanilla" and self.settings["snapshots"]
-        self.visible_versions = [i for i, t in items if t == "release" or (snap and t == "snapshot")]
-        query = ""
-        if hasattr(self, "version_filter") and alive(self.version_filter):
-            query = self.version_filter.get().strip().lower()
-            if query.startswith("поиск версии"):
-                query = ""
-        if query:
-            self.visible_versions = [v for v in self.visible_versions if query in v.lower()]
-        self.version_list.delete(0, "end")
-        for vid in self.visible_versions:
-            self.version_list.insert("end", vid)
-        if self.settings.get("loader") == self.loader_tab and self.settings["version"] in self.visible_versions:
-            idx = self.visible_versions.index(self.settings["version"])
-            self.version_list.selection_set(idx)
-            self.version_list.see(idx)
-        self.version_status.config(text=f"Доступно версий: {len(self.visible_versions)}")
-
-    def on_snapshots_toggle(self):
-        self.settings["snapshots"] = self.snap_var.get()
-        save_json(CONFIG_FILE, self.settings)
-        if self.loader_tab in self.loader_cache:
-            self.fill_versions()
-
-    def choose_version(self):
-        sel = self.version_list.curselection()
-        if not sel:
-            return messagebox.showwarning("Ошибка", "Выбери версию в списке")
-        self.settings["loader"] = self.loader_tab
-        self.settings["version"] = self.visible_versions[sel[0]]
-        self.save_settings()
-        self.show_page("play", animate=False)
-
-    # ---------- Моды ----------
-    def mod_dirs(self):
-        root = self.settings["root"]
-        return os.path.join(root, "mods"), os.path.join(root, "mods_disabled")
-
-    def page_mods(self, p):
-        self.heading(p, "Моды", "Включай и выключай моды переключателем")
-        tk.Label(p, text="Для модов нужен загрузчик Fabric или Forge под выбранную версию игры.",
-                 bg=BG, fg=MUTED, font=(FONT, 9)).pack(anchor="w", pady=(0, 8))
-        mods_dir, dis_dir = self.mod_dirs()
-        os.makedirs(mods_dir, exist_ok=True)
-        os.makedirs(dis_dir, exist_ok=True)
-
-        jars = []
-        for folder, enabled in [(mods_dir, True), (dis_dir, False)]:
-            for f in sorted(os.listdir(folder)):
-                if f.lower().endswith(".jar"):
-                    jars.append((f, enabled))
-
-        box = Panel(p)
-        box.pack(fill="x")
-        if not jars:
-            tk.Label(box.inner, text="Модов нет. Добавь .jar файл кнопкой ниже.",
-                     bg=PANEL, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=4)
-        for name, enabled in jars:
-            var = tk.BooleanVar(value=enabled)
-            r = tk.Frame(box.inner, bg=PANEL)
-            r.pack(fill="x", pady=3)
-            tk.Label(r, text=name, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(side="left")
-            Toggle(r, var, cmd=lambda n=name, v=var: self.toggle_mod(n, v.get()), bg=PANEL).pack(side="right")
-
-        row = tk.Frame(p, bg=BG)
-        row.pack(anchor="w", pady=12)
-        Btn(row, "Добавить мод (.jar)", self.add_mod, style="primary", h=34).pack(side="left", padx=(0, 8))
-        Btn(row, "Открыть папку модов", lambda: open_folder(mods_dir), style="ghost", h=34).pack(side="left")
-
-    def toggle_mod(self, name, enabled):
-        mods_dir, dis_dir = self.mod_dirs()
-        src, dst = (dis_dir, mods_dir) if enabled else (mods_dir, dis_dir)
-        try:
-            os.makedirs(dst, exist_ok=True)
-            shutil.move(os.path.join(src, name), os.path.join(dst, name))
-        except OSError as e:
-            messagebox.showerror("Ошибка", str(e))
-            self.show_page("mods", animate=False)
-
-    def add_mod(self):
-        path = filedialog.askopenfilename(filetypes=[("Mod", "*.jar")])
-        if not path:
-            return
-        mods_dir, _ = self.mod_dirs()
-        os.makedirs(mods_dir, exist_ok=True)
-        shutil.copy(path, os.path.join(mods_dir, os.path.basename(path)))
-        self.show_page("mods", animate=False)
-
-    # ---------- Диагностика модов ----------
-    def page_doctor(self, p):
-        self.heading(p, "Диагностика", "Проверка сборки Minecraft и автоматический поиск конфликтов")
-        root = self.settings["root"]
-        mods_dir, _ = self.mod_dirs()
-        top = Panel(p)
-        top.pack(fill="x", pady=(0, 8))
-        tk.Label(top.inner, text="MOD DOCTOR", bg=PANEL, fg=RED,
-                 font=(FONT, 12, "bold")).pack(anchor="w")
-        tk.Label(top.inner, text="Проверяет JAR-файлы, повторяющиеся mod ID и несовпадение версии Minecraft.",
-                 bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 10))
-        Btn(top.inner, "ПРОВЕРИТЬ МОДЫ", self.run_mod_doctor, style="primary", h=36).pack(anchor="w")
-        repair = Panel(p)
-        repair.pack(fill="x", pady=4)
-        tk.Label(repair.inner, text="Ремонт Fabric / ASM", bg=PANEL, fg=TEXT,
-                 font=(FONT, 11, "bold")).pack(anchor="w")
-        tk.Label(repair.inner, text="Удаляет дубли одной и той же библиотеки ASM из JSON профиля Fabric. Перед изменением создаётся резервная копия.",
-                 bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 8))
-        Btn(repair.inner, "ИСПРАВИТЬ ASM", self.repair_asm, style="soft", h=34).pack(anchor="w")
-        self.doctor_output = tk.Text(p, height=10, bg=FIELD, fg=TEXT, insertbackground=RED,
-                                     relief="flat", bd=0, highlightthickness=1,
-                                     highlightbackground=LINE, font=("Consolas", 9), wrap="word")
-        self.doctor_output.pack(fill="both", expand=True, pady=(8, 0))
-        self.doctor_output.insert("1.0", "Готов к диагностике. Нажми «Проверить моды».\n")
-        self.doctor_output.config(state="disabled")
-
-    def _doctor_report(self, content):
-        if not hasattr(self, "doctor_output") or not alive(self.doctor_output):
-            return
-        self.doctor_output.config(state="normal")
-        self.doctor_output.delete("1.0", "end")
-        self.doctor_output.insert("1.0", content)
-        self.doctor_output.config(state="disabled")
-
-    def run_mod_doctor(self):
-        mods_dir, dis_dir = self.mod_dirs()
-        os.makedirs(mods_dir, exist_ok=True)
-        os.makedirs(dis_dir, exist_ok=True)
-        rows, ids, bad = [], {}, []
-        for folder, enabled in ((mods_dir, True), (dis_dir, False)):
-            for filename in sorted(os.listdir(folder)):
-                if not filename.lower().endswith(".jar"):
-                    continue
-                path = os.path.join(folder, filename)
-                try:
-                    with zipfile.ZipFile(path, "r") as jar:
-                        names = set(jar.namelist())
-                        metadata = None
-                        modid = None
-                        if "fabric.mod.json" in names:
-                            metadata = json.loads(jar.read("fabric.mod.json").decode("utf-8"))
-                            modid = metadata.get("id")
-                            env = metadata.get("environment", "*")
-                            if env == "server":
-                                bad.append("Только серверный мод: " + filename)
-                        elif "META-INF/mods.toml" in names:
-                            raw = jar.read("META-INF/mods.toml").decode("utf-8", "replace")
-                            match = re.search(r"(?m)^modId\s*=\s*[\'\"]([^\'\"]+)", raw)
-                            modid = match.group(1) if match else None
-                        elif "mcmod.info" in names:
-                            raw = jar.read("mcmod.info").decode("utf-8", "replace")
-                            try:
-                                data = json.loads(raw)
-                                if isinstance(data, list) and data:
-                                    modid = data[0].get("modid")
-                            except Exception:
-                                pass
-                        if modid and enabled:
-                            ids.setdefault(modid.lower(), []).append(filename)
-                        rows.append(("%s  %s" % ("ON " if enabled else "OFF", filename), modid))
-                except Exception as exc:
-                    bad.append("Повреждённый JAR: %s (%s)" % (filename, exc))
-        report = ["STIVOX 3.1 · MOD DOCTOR", "Папка: " + mods_dir,
-                  "Найдено JAR: %d (включено %d, отключено %d)" %
-                  (len(rows), sum(1 for x in rows if x[0].startswith("ON ")),
-                   sum(1 for x in rows if x[0].startswith("OFF "))), ""]
-        report.extend("%s%s" % (name, ("  [id: " + modid + "]") if modid else "") for name, modid in rows)
-        duplicates = [(mid, files) for mid, files in ids.items() if len(files) > 1]
-        if duplicates:
-            report.extend(["", "КОНФЛИКТЫ:"])
-            report.extend("Повторный mod ID '%s': %s" % (mid, ", ".join(files)) for mid, files in duplicates)
-        if bad:
-            report.extend(["", "ПРЕДУПРЕЖДЕНИЯ:"] + bad)
-        if not duplicates and not bad:
-            report.extend(["", "Критичных проблем по метаданным не найдено."])
-        report.extend(["", "Важно: совместимость по версии игры и зависимостям зависит от метаданных мода;",
-                       "сканер не гарантирует отсутствие всех конфликтов."])
-        self._doctor_report("\n".join(report))
-
-    def repair_asm(self):
-        root = self.settings["root"]
-        version_id = self.find_installed(root, lambda i: i.startswith("fabric-loader") and i.endswith("-" + self.settings["version"]))
-        if not version_id:
-            return messagebox.showinfo("Fabric", "Профиль Fabric для выбранной версии ещё не установлен.")
-        path = os.path.join(root, "versions", version_id, version_id + ".json")
-        data = load_json(path, None)
-        if not data or not isinstance(data.get("libraries"), list):
-            return messagebox.showerror("Ошибка", "Не удалось прочитать JSON профиля Fabric.")
-        before = len(data["libraries"])
-        dedupe_version_libraries(root, version_id)
-        data = load_json(path, data)
-        removed = before - len(data.get("libraries", []))
-        if removed:
-            messagebox.showinfo("Готово", "Удалено дублирующихся записей библиотек: %d" % removed)
-        else:
-            messagebox.showinfo("Проверка завершена", "Дубли в JSON профиля не найдены. При запуске также будет очищаться classpath.")
-        self._doctor_report("Профиль: %s\nБиблиотек до: %d\nБиблиотек после: %d\nУдалено: %d" %
-                            (version_id, before, len(data.get("libraries", [])), removed))
-
-    # ---------- Настройки ----------
-    def page_settings(self, p):
-        self.heading(p, "Настройки", "Папки и данные лаунчера")
-        rows = [
-            ("Корневая папка игры", self.settings["root"], "Изменить", self.change_root, "soft"),
-            ("Вернуть папку по умолчанию", DEFAULT_ROOT, "Сбросить", self.reset_root, "ghost"),
-            ("Папка лаунчера", "аккаунты и конфиг", "Открыть", lambda: open_folder(APP_DIR), "ghost"),
+        win.geometry("300x390")
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{x}+{y}")
+        panel = tk.Frame(win, bg="#252525", padx=18, pady=18)
+        panel.pack(fill="both", expand=True, padx=12, pady=12)
+        tk.Label(panel, text="МЕНЮ", bg="#252525", fg=TEXT,
+                 font=(FONT, 13, "bold")).pack(anchor="w", pady=(0, 12))
+        entries = [
+            ("Настройки", "settings"), ("Аккаунты", "accounts"),
+            ("Версии Minecraft", "versions"), ("Серверы", "servers"),
+            ("Моды", "mods"), ("Миры и резервные копии", "worlds"),
+            ("Диагностика", "doctor"), ("Статистика", "stats"),
         ]
-        for title, value, btn, cmd, style in rows:
-            pn = Panel(p)
-            pn.pack(fill="x", pady=4)
-            r = tk.Frame(pn.inner, bg=PANEL)
-            r.pack(fill="x")
-            left = tk.Frame(r, bg=PANEL)
-            left.pack(side="left", fill="x", expand=True)
-            tk.Label(left, text=title, bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
-            tk.Label(left, text=value, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(anchor="w")
-            Btn(r, btn, cmd, style=style, bg=PANEL, h=30, size=9).pack(side="right")
-        maintenance = Panel(p, radius=12)
-        maintenance.pack(fill="x", pady=(8, 4))
-        tk.Label(maintenance.inner, text="ОБСЛУЖИВАНИЕ", bg=PANEL, fg=GREY,
-                 font=(FONT, 7, "bold")).pack(anchor="w")
-        tk.Label(maintenance.inner, text="Очистка временного кэша лаунчера. Миры, моды, ресурсы, библиотеки и логи не затрагиваются.",
-                 bg=PANEL, fg=GREY, font=(FONT, 8), wraplength=700,
-                 justify="left").pack(anchor="w", pady=(4, 8))
-        Btn(maintenance.inner, "ОЧИСТИТЬ БЕЗОПАСНЫЙ КЭШ", self.clear_safe_cache,
-            style="soft", bg=PANEL, h=31, size=8).pack(anchor="w")
-        self.java_section(p)
-
-    def clear_safe_cache(self):
-        root = self.settings["root"]
-        candidates = [os.path.join(APP_DIR, "cache"), os.path.join(APP_DIR, "http_cache"),
-                      os.path.join(APP_DIR, "tmp"), os.path.join(root, "webcache2")]
-        targets = [x for x in candidates if os.path.isdir(x)]
-        if not targets:
-            return messagebox.showinfo("Очистка кэша", "Временный кэш не найден — очищать нечего.")
-        total = 0
-        for folder in targets:
-            for base, _dirs, files in os.walk(folder):
-                for filename in files:
-                    try:
-                        total += os.path.getsize(os.path.join(base, filename))
-                    except OSError:
-                        pass
-        mb = total / (1024 * 1024)
-        names = "\n".join(os.path.basename(x) for x in targets)
-        if not messagebox.askyesno("Очистка кэша", f"Удалить временные данные ({mb:.1f} МБ)?\n\n{names}\n\nМиры, моды, библиотеки и логи не трогаются."):
-            return
-        removed = 0
-        for folder in targets:
-            try:
-                shutil.rmtree(folder)
-                removed += 1
-            except OSError as exc:
-                messagebox.showwarning("Частичная очистка", str(exc))
-        messagebox.showinfo("Очистка", f"Удалено временных папок: {removed}")
-
-    def change_root(self):
-        path = filedialog.askdirectory()
-        if path:
-            self.settings["root"] = os.path.normpath(path)
-            self.save_settings()
-            self.show_page("settings", animate=False)
-
-    def reset_root(self):
-        self.settings["root"] = DEFAULT_ROOT
-        self.save_settings()
-        self.show_page("settings", animate=False)
-
-    # ---------- Статистика ----------
-    def monitor_game(self, proc, root):
-        """Следит за логом игры: по строке 'Connecting to ...' считает время на сервере."""
-        log = os.path.join(root, "logs", "latest.log")
-        connect_re = re.compile(r"Connecting to ([^,\s]+), (\d+)")
-        pos = 0
-        cur_key, cur_start = None, None
-        while proc.poll() is None:
-            time.sleep(2)
-            chunk, pos = read_new(log, pos)
-            for line in chunk.splitlines():
-                m = connect_re.search(line)
-                if m:
-                    now = time.time()
-                    if cur_key:
-                        add_playtime(cur_key, now - cur_start)
-                    cur_key, cur_start = server_key(m.group(1), m.group(2)), now
-                elif "Stopping!" in line and cur_key:
-                    add_playtime(cur_key, time.time() - cur_start)
-                    cur_key = None
-        if cur_key:
-            add_playtime(cur_key, time.time() - cur_start)
-        return proc.wait()
+        for title, page in entries:
+            Btn(panel, title, lambda key=page: (win.destroy(), self.show_page(key)),
+                style="ghost", bg="#252525", h=31, size=9,
+                stretch=True).pack(fill="x", pady=2)
+        Btn(panel, "НАЗАД К ЗАПУСКУ", lambda: (win.destroy(), self.show_page("play")),
+            style="primary", bg="#252525", h=34, size=9,
+            stretch=True).pack(fill="x", pady=(10, 0))
 
     def page_stats(self, p):
         self.heading(p, "Статистика", "Сколько времени ты провёл на серверах")
