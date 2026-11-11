@@ -1013,7 +1013,8 @@ class App(tk.Tk):
 
         actions = tk.Frame(card, bg="#252525")
         actions.pack(fill="x")
-        actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="actions")
+        for column in range(4):
+            actions.grid_columnconfigure(column, weight=1, uniform="actions")
         for col, (symbol, hint, command) in enumerate([
             ("i", "Информация и аккаунты", lambda: self.show_page("more")),
             ("▰", "Папка Minecraft", lambda: open_folder(self.settings["root"])),
@@ -1059,7 +1060,8 @@ class App(tk.Tk):
     def _home_account_changed(self, event=None):
         name = self.home_account_var.get()
         if any(a.get("name") == name for a in self.accounts):
-            self.select_account(name)
+            self.settings["account"] = name
+            self.save_settings()
             self.show_page("play", animate=False)
 
     def _home_version_changed(self, event=None):
