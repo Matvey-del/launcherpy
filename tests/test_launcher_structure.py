@@ -62,7 +62,7 @@ class LauncherStructureTests(unittest.TestCase):
         wallpaper = ROOT / "assets" / "background.jpg.b64"
         self.assertTrue(wallpaper.is_file(), "Bundled Minecraft wallpaper is missing")
         raw = base64.b64decode(wallpaper.read_text(encoding="ascii").strip(), validate=True)
-        self.assertTrue(raw.startswith(b"\\xff\\xd8\\xff"), "Wallpaper payload is not a JPEG")
+        self.assertTrue(raw.startswith(bytes.fromhex("ffd8ff")), "Wallpaper payload is not a JPEG")
 
     def test_lainlauncher_brand_and_wallpaper_loader(self):
         source = SOURCE.read_text(encoding="utf-8")
