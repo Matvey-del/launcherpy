@@ -542,19 +542,18 @@ class Panel(tk.Canvas):
             top = tuple(min(255, int(channel * 1.24 + 5)) for channel in base)
             bottom = tuple(max(0, int(channel * 0.88)) for channel in base)
             gradient = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
-            pixels = gradient.load()
+            gradient_draw = ImageDraw.Draw(gradient)
             for y in range(art_h):
                 t = y / max(1, art_h - 1)
                 color = tuple(int(top[c] * (1 - t) + bottom[c] * t) for c in range(3))
-                for x in range(art_w):
-                    pixels[x, y] = (*color, 242)
+                gradient_draw.line((0, y, art_w, y), fill=(*color, 230), width=1)
 
             mask = Image.new("L", (art_w, art_h), 0)
             mask_draw = ImageDraw.Draw(mask)
             mask_draw.rounded_rectangle(
                 (1, 1, art_w - 2, art_h - 2),
                 radius=radius, fill=255)
-            gradient.putalpha(Image.eval(mask, lambda value: int(value * 0.96)))
+            gradient.putalpha(Image.eval(mask, lambda value: int(value * 0.88)))
             surface.alpha_composite(gradient)
 
             rim = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
