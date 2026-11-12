@@ -101,6 +101,10 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("self._tk_font", self.source)
         self.assertIn("self._render()", self.source)
         self.assertIn("ImageTk.PhotoImage(image)", self.source)
+        self.assertIn("def reserve_text(self, text):", self.source)
+        self.assertIn("self.header_title.reserve_text(title_text)", self.source)
+        self.assertIn("self._reserved_width = max(self._reserved_width, requested_width)", self.source)
+        self.assertIn("radius = max(2, min(self.radius, width / 2 - 1,", self.source)
 
     def test_build_workflow_uses_explicit_powershell_argument_list(self):
         workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
