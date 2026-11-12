@@ -494,11 +494,11 @@ def alive(w):
 
 
 class Panel(tk.Canvas):
-    """Скруглённая карточка с мягкой тенью. Содержимое кладётся в .inner."""
-    PAD = 12
-    SH = 2
+    """Layered rounded glass surface; child widgets live on the inset canvas."""
+    PAD = 22
+    SH = 9
 
-    def __init__(self, parent, bg=BG, fill=PANEL, radius=16):
+    def __init__(self, parent, bg=BG, fill=PANEL, radius=22):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0)
         self.fill = fill
         self.radius = radius
@@ -511,21 +511,26 @@ class Panel(tk.Canvas):
     def _layout(self):
         if not alive(self):
             return
-        w = self.winfo_width()
-        if w < 60:
+        width = self.winfo_width()
+        if width < 60:
             return
-        self.itemconfigure(self.win, width=w - 2 * self.PAD)
-        h = self.inner.winfo_reqheight() + 2 * self.PAD + self.SH
-        if h != self._h:
-            self._h = h
-            self.config(height=h)
-        self.delete("bg")
-        r = self.radius
-        rrect(self, 5, self.SH + 3, w - 5, h - 1, r, fill="#050608", outline="", tags="bg")
-        rrect(self, 2, self.SH, w - 2, h - 3, r, fill=SHADOW, outline="", tags="bg")
-        rrect(self, 0, 0, w - 1, h - self.SH - 1, r, fill=self.fill, outline="#555d68", width=1, tags="bg")
-        self.tag_lower("bg")
+        self.itemconfigure(self.win, width=max(1, width - 2 * self.PAD))
+        height = self.inner.winfo_reqheight() + 2 * self.PAD + self.SH
+        if height != self._h:
+            self._h = height
+            self.config(height=height)
 
+        self.delete("glass")
+        r = self.radius
+        rrect(self, 5, self.SH + 4, width - 5, height - 1, r,
+              fill="#07080b", outline="", tags="glass")
+        rrect(self, 2, self.SH + 1, width - 2, height - 4, r,
+              fill="#11151b", outline="", tags="glass")
+        rrect(self, 0, 0, width - 1, height - self.SH - 2, r,
+              fill=self.fill, outline="#454c57", width=1, tags="glass")
+        self.create_line(r + 8, 1, width - r - 8, 1,
+                         fill="#59616d", width=1, tags="glass")
+        self.tag_lower("glass")
 
 class Btn(tk.Canvas):
     """Скруглённая кнопка с плавной сменой цвета при наведении."""
@@ -577,7 +582,7 @@ class Btn(tk.Canvas):
         if 0 <= e.x <= self.w and 0 <= e.y <= self.h and self.cmd:
             self.cmd()
 
-    def tween(self, target, steps=7):
+    def tween(self, target, steps=11):
         if self._job:
             try:
                 self.after_cancel(self._job)
@@ -599,11 +604,15 @@ class Btn(tk.Canvas):
             return
         self.delete("all")
         w, h = self.w, self.h
+        radius = min(15, h / 2)
+        rrect(self, 1, 3, w - 2, h - 1, radius, fill="#090b0f", outline="")
         if self.pulse:
-            rrect(self, 0, 0, w - 1, h - 1, min(12, h / 2), fill=self.glow, outline="")
-            rrect(self, 2, 2, w - 3, h - 3, min(10, (h - 4) / 2), fill=self.cur, outline="")
+            rrect(self, 0, 0, w - 1, h - 4, radius, fill=self.glow, outline="")
+            rrect(self, 2, 2, w - 3, h - 5, max(5, radius - 2),
+                  fill=self.cur, outline="#616975", width=1)
         else:
-            rrect(self, 0, 0, w - 1, h - 1, min(12, h / 2), fill=self.cur, outline="")
+            rrect(self, 0, 0, w - 1, h - 4, radius,
+                  fill=self.cur, outline="#424954", width=1)
         if self.align == "center":
             self.create_text(w / 2, h / 2, text=self.text, fill=self.fg, font=self.font)
         else:
@@ -657,8 +666,8 @@ class Field(tk.Canvas):
             return
         self.delete("bg")
         self.itemconfigure(self.win, width=w - 24)
-        rrect(self, 0, 0, w - 1, self.h - 1, 10, fill=self.border, outline="", tags="bg")
-        rrect(self, 1, 1, w - 2, self.h - 2, 9, fill=FIELD, outline="", tags="bg")
+        rrect(self, 0, 0, w - 1, self.h - 1, 13, fill=self.border, outline="", tags="bg")
+        rrect(self, 1, 1, w - 2, self.h - 2, 12, fill=FIELD, outline="", tags="bg")
         self.tag_lower("bg")
 
     def get(self):
@@ -666,6 +675,111 @@ class Field(tk.Canvas):
 
     def raw(self):
         return self.entry.get()
+
+
+class SelectBox(tk.Canvas):
+    """Rounded custom selector with an animated face and a lightweight popup list."""
+    def __init__(self, parent, variable, values, command=None, bg=GLASS, h=44):
+        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self.variable = variable
+        self.values = list(values)
+        self.command = command
+        self.surface = FIELD
+        self.hover = False
+        self.popup = None
+        self.bind("<Configure>", lambda e: self._paint())
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", self._open)
+        self._paint()
+
+    def _on_enter(self, _event=None):
+        self.hover = True
+        self._paint()
+
+    def _on_leave(self, _event=None):
+        self.hover = False
+        self._paint()
+
+    def _paint(self):
+        if not alive(self):
+            return
+        self.delete("select")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        if width < 40:
+            return
+        edge = "#737c89" if self.hover else LINE
+        rrect(self, 1, 1, width - 2, height - 2, 12,
+              fill=edge, outline="", tags="select")
+        rrect(self, 2, 2, width - 3, height - 3, 11,
+              fill=self.surface, outline="", tags="select")
+        self.create_text(16, height / 2, text=self.variable.get(),
+                         anchor="w", fill=TEXT, font=(FONT, 10),
+                         tags="select")
+        self.create_text(width - 19, height / 2 - 1, text="⌄",
+                         fill=GREY, font=(FONT, 15, "bold"),
+                         tags="select")
+        self.tag_raise("select")
+
+    def _open(self, _event=None):
+        if self.popup is not None and alive(self.popup):
+            self.popup.destroy()
+            self.popup = None
+            return
+        if not self.values:
+            return
+        popup = tk.Toplevel(self)
+        self.popup = popup
+        popup.overrideredirect(True)
+        popup.configure(bg=PANEL)
+        try:
+            popup.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        width = max(220, self.winfo_width())
+        height = min(260, max(42, len(self.values) * 36 + 12))
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + 6
+        popup.geometry(f"{width}x{height}+{x}+{y}")
+
+        frame = tk.Frame(popup, bg=PANEL, highlightthickness=1,
+                         highlightbackground=LINE, padx=5, pady=5)
+        frame.pack(fill="both", expand=True)
+        listing = tk.Listbox(frame, bg=PANEL, fg=TEXT,
+                             selectbackground=RED_DARK, selectforeground=TEXT,
+                             relief="flat", bd=0, highlightthickness=0,
+                             activestyle="none", font=(FONT, 9),
+                             height=min(7, len(self.values)))
+        listing.pack(fill="both", expand=True)
+        for item in self.values:
+            listing.insert("end", item)
+        try:
+            index = self.values.index(self.variable.get())
+            listing.selection_set(index)
+            listing.see(index)
+        except ValueError:
+            pass
+
+        def choose(_event=None):
+            selection = listing.curselection()
+            if selection:
+                self.variable.set(self.values[selection[0]])
+                self._paint()
+                if self.command:
+                    self.command()
+            if alive(popup):
+                popup.destroy()
+            self.popup = None
+
+        listing.bind("<ButtonRelease-1>", choose)
+        listing.bind("<Return>", choose)
+        popup.bind("<Escape>", lambda _e: popup.destroy())
+        popup.bind("<FocusOut>", lambda _e: popup.after(
+            120, lambda: popup.destroy() if alive(popup) else None))
+        popup.focus_force()
+        listing.focus_set()
 
 
 class Toggle(tk.Canvas):
@@ -863,30 +977,28 @@ class App(tk.Tk):
                                    font=(FONT, 8, "bold"))
         self.top_status.pack(side="right", padx=(12, 0))
 
-        sidebar = tk.Frame(self, bg=SIDE, width=184, highlightthickness=1,
-                           highlightbackground=LINE)
+        sidebar = tk.Frame(self, bg=BG, width=184, highlightthickness=0)
         sidebar.grid(row=1, column=0, sticky="nsew", padx=(20, 12), pady=(0, 20))
         sidebar.grid_propagate(False)
-        side_head = tk.Frame(sidebar, bg=SIDE)
+        side_head = tk.Frame(sidebar, bg=BG)
         side_head.pack(fill="x", padx=12, pady=(16, 12))
-        tk.Label(side_head, text="РАЗДЕЛЫ", bg=SIDE, fg=MUTED,
+        tk.Label(side_head, text="РАЗДЕЛЫ", bg=BG, fg=MUTED,
                  font=(FONT, 7, "bold")).pack(anchor="w")
 
         self.nav = {}
         for key, label in NAV:
             button = Btn(sidebar, label.upper(), lambda k=key: self.show_page(k),
-                         style="nav", bg=SIDE, h=38, size=8,
+                         style="nav", bg=BG, h=42, size=9,
                          stretch=True, align="left")
             button.pack(fill="x", padx=9, pady=3)
             self.nav[key] = button
 
-        tk.Frame(sidebar, bg=LINE, height=1).pack(fill="x", padx=12, pady=(14, 10))
-        tk.Label(sidebar, text="MINECRAFT", bg=SIDE, fg=GREY,
-                 font=(FONT, 8, "bold")).pack(anchor="w", padx=13)
-        tk.Label(sidebar, text="DESKTOP  /  JAVA", bg=SIDE, fg=MUTED,
+        tk.Label(sidebar, text="MINECRAFT", bg=BG, fg=GREY,
+                 font=(FONT, 8, "bold")).pack(anchor="w", padx=13, pady=(18, 0))
+        tk.Label(sidebar, text="DESKTOP  /  JAVA", bg=BG, fg=MUTED,
                  font=(FONT, 7)).pack(anchor="w", padx=13, pady=(3, 0))
 
-        self.stage = tk.Frame(self, bg=BG, highlightthickness=0)
+        self.stage = tk.Frame(self, bg=BG, highlightthickness=0, bd=0)
         self.stage.grid(row=1, column=1, sticky="nsew", padx=(0, 20), pady=(0, 20))
 
     def go_back(self):
@@ -937,37 +1049,20 @@ class App(tk.Tk):
             if old is not None and alive(old):
                 old.place_configure(x=0)
 
-        self.stage.update_idletasks()
-        page_sizes = {
-            "play": (560, 560), "more": (900, 640), "settings": (940, 660),
-            "accounts": (900, 660), "versions": (900, 660), "servers": (940, 660),
-            "mods": (900, 660), "worlds": (940, 660), "doctor": (940, 660),
-            "stats": (900, 640),
-        }
-        target_w, target_h = page_sizes.get(key, (900, 660))
-        stage_w = max(360, self.stage.winfo_width() - 18)
-        stage_h = max(300, self.stage.winfo_height() - 18)
-        width = min(target_w, stage_w)
-        height = min(target_h, stage_h)
-
-        new = tk.Frame(self.stage, bg=BG, highlightthickness=1,
-                       highlightbackground=LINE)
-        new.configure(width=width, height=height)
-        new.pack_propagate(False)
+        new = tk.Frame(self.stage, bg=BG, highlightthickness=0, bd=0)
         self.builders[key](new)
         self.page = new
         if animate and old is not None and alive(old):
             self.outgoing = old
-            new.place(relx=0.5, rely=0.5, anchor="center", x=28 * direction,
-                      width=width, height=height)
+            new.place(x=28 * direction, y=0, relwidth=1, relheight=1)
             new.lift()
             self._slide(new, old, 28 * direction, 0)
         else:
             if old is not None and alive(old):
                 old.destroy()
-            new.place(relx=0.5, rely=0.5, anchor="center", width=width, height=height)
+            new.place(x=0, y=0, relwidth=1, relheight=1)
 
-    def _slide(self, new, old, start, step, steps=14):
+    def _slide(self, new, old, start, step, steps=22):
         if not (alive(new) and alive(old)):
             self.slide_job = None
             return
@@ -977,7 +1072,7 @@ class App(tk.Tk):
         new.place_configure(x=x)
         old.place_configure(x=x - start)
         if step + 1 < steps:
-            self.slide_job = self.after(12, self._slide, new, old, start, step + 1, steps)
+            self.slide_job = self.after(15, self._slide, new, old, start, step + 1, steps)
         else:
             self.slide_job = None
             old.destroy()
@@ -1037,41 +1132,55 @@ class App(tk.Tk):
 
     # ---------- Главная ----------
     def page_play(self, p):
-        """Single-card start screen inspired by the supplied reference."""
+        """Airy home screen built from rounded custom-rendered controls."""
         shell = tk.Frame(p, bg=BG)
-        shell.place(relx=0.5, rely=0.5, anchor="center")
+        shell.place(relx=0.5, rely=0.49, anchor="center")
 
-        card = tk.Frame(shell, bg=GLASS, highlightthickness=1,
-                        highlightbackground=GLASS_EDGE, padx=26, pady=22)
-        card.pack()
+        card = Panel(shell, bg=BG, fill=GLASS, radius=28)
+        card.configure(width=468)
+        card.pack(fill="x")
 
-        brand = tk.Label(card, text="LainLauncher", bg=GLASS, fg=TEXT,
-                         font=(FONT, 19, "bold"))
-        brand.pack(anchor="center", pady=(0, 13))
+        content = card.inner
+        eyebrow = tk.Label(content, text="MINECRAFT  /  JAVA EDITION",
+                           bg=GLASS, fg=MUTED, font=(FONT, 8, "bold"))
+        eyebrow.pack(anchor="center", pady=(0, 7))
 
-        # Account selector.
+        brand = tk.Label(content, text="", bg=GLASS, fg=TEXT,
+                         font=(FONT, 25, "bold"))
+        brand.pack(anchor="center", pady=(0, 3))
+        self._animate_label(brand, "LainLauncher", 20)
+        tk.Label(content, text="ТВОЯ ИГРА. ТВОИ ПРАВИЛА.",
+                 bg=GLASS, fg=GREY, font=(FONT, 8)).pack(
+                     anchor="center", pady=(0, 24))
+
         accounts = [a.get("name", "") for a in self.accounts if a.get("name")]
-        current = self.settings.get("account") or (accounts[0] if accounts else "")
+        current = self.settings.get("account") or (accounts[0] if accounts else "Нет аккаунтов")
         self.home_account_var = tk.StringVar(value=current)
-        self.home_account_box = self._home_combo(card, self.home_account_var,
-                                                   accounts or ["Нет аккаунтов"])
-        self.home_account_box.pack(fill="x", pady=(0, 7))
-        self.home_account_box.bind("<<ComboboxSelected>>", self._home_account_changed)
 
-        # The game version and mod loader are presented together, as in the reference.
+        tk.Label(content, text="АККАУНТ", bg=GLASS, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w", pady=(0, 6))
+        self.home_account_box = SelectBox(
+            content, self.home_account_var, accounts or ["Нет аккаунтов"],
+            command=self._home_account_changed, bg=GLASS, h=46)
+        self.home_account_box.pack(fill="x", pady=(0, 16))
+
         loader = self.settings.get("loader", "vanilla")
         loader_label = LOADER_NAMES.get(loader, "Vanilla")
         version_text = f"{loader_label} {self.settings.get('version', DEFAULT_VERSION)}"
         self.home_version_var = tk.StringVar(value=version_text)
-        self.home_version_box = self._home_combo(
-            card, self.home_version_var,
-            [f"{name} {self.settings.get('version', DEFAULT_VERSION)}"
-             for name in LOADER_NAMES.values()])
-        self.home_version_box.pack(fill="x", pady=(0, 12))
-        self.home_version_box.bind("<<ComboboxSelected>>", self._home_version_changed)
+        version_values = [
+            f"{name} {self.settings.get('version', DEFAULT_VERSION)}"
+            for name in LOADER_NAMES.values()
+        ]
+        tk.Label(content, text="ВЕРСИЯ И ЗАГРУЗЧИК", bg=GLASS, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w", pady=(0, 6))
+        self.home_version_box = SelectBox(
+            content, self.home_version_var, version_values,
+            command=self._home_version_changed, bg=GLASS, h=46)
+        self.home_version_box.pack(fill="x", pady=(0, 22))
 
-        options = tk.Frame(card, bg=GLASS)
-        options.pack(fill="x", pady=(0, 12))
+        options = tk.Frame(content, bg=GLASS)
+        options.pack(fill="x", pady=(0, 20))
         self.delayed_launch_var = tk.BooleanVar(value=bool(self.settings.get("delayed_launch", False)))
         self.snapshots_var = tk.BooleanVar(value=bool(self.settings.get("snapshots", False)))
         for label, variable, command in (
@@ -1079,17 +1188,17 @@ class App(tk.Tk):
             ("Показывать снапшоты", self.snapshots_var, self._save_home_snapshots),
         ):
             option_row = tk.Frame(options, bg=GLASS)
-            option_row.pack(fill="x", pady=4)
+            option_row.pack(fill="x", pady=6)
             tk.Label(option_row, text=label, bg=GLASS, fg=GREY,
                      font=(FONT, 9)).pack(side="left")
             Toggle(option_row, variable, cmd=command, bg=GLASS).pack(side="right")
 
-        self.home_launch_btn = Btn(card, "ЗАПУСТИТЬ", self._home_launch,
-                                   style="primary", bg=GLASS, h=47, size=13,
-                                   width=236)
-        self.home_launch_btn.pack(fill="x", pady=(0, 4))
+        self.home_launch_btn = Btn(content, "ЗАПУСТИТЬ MINECRAFT", self._home_launch,
+                                   style="primary", bg=GLASS, h=56, size=12,
+                                   width=340)
+        self.home_launch_btn.pack(fill="x", pady=(0, 14))
 
-        actions = tk.Frame(card, bg=GLASS)
+        actions = tk.Frame(content, bg=GLASS)
         actions.pack(fill="x")
         for column in range(4):
             actions.grid_columnconfigure(column, weight=1, uniform="actions")
@@ -1099,15 +1208,15 @@ class App(tk.Tk):
             ("↻", "Версии и загрузчики", lambda: self.show_page("versions")),
             ("⚙", "Настройки", lambda: self.show_page("settings")),
         ]):
-            btn = Btn(actions, symbol, command, style="ghost", bg=GLASS,
-                      h=34, size=13, width=52)
-            btn.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 3, 0))
-            btn.bind("<Enter>", lambda e, w=btn, t=hint: self._set_home_hint(t))
-            btn.bind("<Leave>", lambda e: self._set_home_hint(""))
+            button = Btn(actions, symbol, command, style="ghost", bg=GLASS,
+                         h=40, size=14, width=64)
+            button.grid(row=0, column=col, sticky="ew", padx=4)
+            button.bind("<Enter>", lambda e, w=button, t=hint: self._set_home_hint(t))
+            button.bind("<Leave>", lambda e: self._set_home_hint(""))
 
-        self.home_hint = tk.Label(card, text="", bg=GLASS, fg=GREY,
+        self.home_hint = tk.Label(content, text="", bg=GLASS, fg=MUTED,
                                   font=(FONT, 8))
-        self.home_hint.pack(pady=(7, 0))
+        self.home_hint.pack(pady=(12, 0))
 
     def _home_combo(self, parent, variable, values):
         from tkinter import ttk
