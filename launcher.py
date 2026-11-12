@@ -598,6 +598,8 @@ class TextLabel(tk.Canvas):
         self._scale = 2
         self._photo = None
         self._render_job = None
+        self._caret_index = None
+        self._caret_visible = False
         self._tk_font = tkfont.Font(root=parent, font=font)
         requested_width, requested_height = self._requested_size()
         super().__init__(parent, width=requested_width, height=requested_height,
@@ -676,6 +678,11 @@ class TextLabel(tk.Canvas):
         height = max(18, int(px * 1.7 + 6))
         return width, height
 
+    def set_caret(self, index=None, visible=False):
+        self._caret_index = index
+        self._caret_visible = bool(visible and index is not None)
+        self._render()
+
     def _schedule_render(self, _event=None):
         if self._render_job:
             try:
@@ -703,6 +710,10 @@ class TextLabel(tk.Canvas):
             widths = [font.getlength(line) for line in lines]
             block_width = max(widths or [0])
             block_height = max(line_height, line_height * len(lines))
+            desired_height = max(18, int((block_height + 6 * scale) / scale + 0.5))
+            if desired_height != self.winfo_reqheight():
+                tk.Canvas.configure(self, height=desired_height)
+                height = desired_height
             image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
             draw = ImageDraw.Draw(image)
 
@@ -733,6 +744,11 @@ class TextLabel(tk.Canvas):
                 draw.text((x + 0.5 * scale, y + 1 * scale), line,
                           font=font, fill=(0, 0, 0, 56), anchor="lt")
                 draw.text((x, y), line, font=font, fill=self._label_fg, anchor="lt")
+                if index == 0 and self._caret_visible and self._caret_index is not None:
+                    caret_prefix = line[:max(0, min(len(line), self._caret_index))]
+                    caret_x = x + font.getlength(caret_prefix)
+                    draw.line((caret_x, y + 2 * scale, caret_x, y + line_height - 2 * scale),
+                              fill=self._label_fg, width=max(2, scale))
 
             resampling = getattr(Image, "Resampling", Image)
             image = image.resize((width, height), resampling.LANCZOS)
@@ -878,19 +894,196 @@ class Btn(tk.Canvas):
 
 
 class Field(tk.Canvas):
-    """Поле ввода с рамкой, которая становится красной при фокусе."""
+    """Fully custom rounded input: Canvas surface, high-DPI text and caret."""
     def __init__(self, parent, show=None, bg=PANEL, h=38):
-        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0)
+        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0,
+                         cursor="xterm", takefocus=True)
         self.h = h
         self.border = LINE
+        self.show = show or ""
+        self._value = ""
+        self._text_fg = TEXT
+        self._insert_color = RED_HI
+        self._cursor = 0
+        self._focused = False
+        self._caret_visible = False
         self._border_job = None
-        self.entry = tk.Entry(self, bg=FIELD, fg=TEXT, insertbackground=RED_HI, relief="flat",
-                              font=(FONT, 11), show=show or "", bd=0, highlightthickness=0)
-        self.win = self.create_window(12, h // 2, anchor="w", window=self.entry)
-        self.entry.bind("<FocusIn>", lambda e: self._set_border(RED_HI))
-        self.entry.bind("<FocusOut>", lambda e: self._set_border(LINE))
+        self._caret_job = None
+        self._text_widget = TextLabel(self, text="", bg=FIELD, fg=TEXT,
+                                      font=(FONT, 11), anchor="w")
+        self.win = self.create_window(13, h // 2, anchor="w",
+                                      window=self._text_widget, height=h - 8)
+        self.entry = self
+
         self.bind("<Configure>", lambda e: self._paint())
-        self.bind("<Button-1>", lambda e: self.entry.focus_set())
+        self.bind("<Button-1>", self._focus_input)
+        self.bind("<FocusIn>", self._on_focus_in, add="+")
+        self.bind("<FocusOut>", self._on_focus_out, add="+")
+        self.bind("<KeyPress>", self._on_key)
+        self._sync_text()
+        self._paint()
+
+    def _focus_input(self, _event=None):
+        self.focus_set()
+        self._cursor = len(self._value)
+        self._sync_text()
+        return "break"
+
+    def _on_focus_in(self, _event=None):
+        self._focused = True
+        self._set_border(RED_HI)
+        self._caret_visible = True
+        self._sync_text()
+        self._blink_caret()
+
+    def _on_focus_out(self, _event=None):
+        self._focused = False
+        self._caret_visible = False
+        if self._caret_job:
+            try:
+                self.after_cancel(self._caret_job)
+            except tk.TclError:
+                pass
+            self._caret_job = None
+        self._set_border(LINE)
+        self._sync_text()
+
+    def _blink_caret(self):
+        if not alive(self) or not self._focused:
+            return
+        self._caret_visible = not self._caret_visible
+        self._sync_text()
+        self._caret_job = self.after(520, self._blink_caret)
+
+    def _display_value(self):
+        if self.show:
+            return self.show * len(self._value)
+        return self._value
+
+    def _sync_text(self):
+        if not alive(self._text_widget):
+            return
+        self._text_widget.config(text=self._display_value(), fg=self._text_fg)
+        self._text_widget.set_caret(self._cursor, self._caret_visible and self._focused)
+
+    def _on_key(self, event):
+        key = event.keysym
+        ctrl = bool(event.state & 0x4)
+        if ctrl and key.lower() == "a":
+            self._cursor = len(self._value)
+            self._caret_visible = True
+            self._sync_text()
+            return "break"
+        if ctrl and key.lower() == "v":
+            try:
+                pasted = self.clipboard_get()
+            except tk.TclError:
+                pasted = ""
+            if pasted:
+                self.insert(self._cursor, pasted)
+            return "break"
+        if ctrl and key.lower() == "c":
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(self._value)
+            except tk.TclError:
+                pass
+            return "break"
+        if key == "BackSpace":
+            if self._cursor > 0:
+                self._value = self._value[:self._cursor - 1] + self._value[self._cursor:]
+                self._cursor -= 1
+                self._changed()
+            return "break"
+        if key == "Delete":
+            if self._cursor < len(self._value):
+                self._value = self._value[:self._cursor] + self._value[self._cursor + 1:]
+                self._changed()
+            return "break"
+        if key == "Left":
+            self._cursor = max(0, self._cursor - 1)
+            self._changed()
+            return "break"
+        if key == "Right":
+            self._cursor = min(len(self._value), self._cursor + 1)
+            self._changed()
+            return "break"
+        if key == "Home":
+            self._cursor = 0
+            self._changed()
+            return "break"
+        if key == "End":
+            self._cursor = len(self._value)
+            self._changed()
+            return "break"
+        if key in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+                   "Caps_Lock", "Tab", "Escape"):
+            return None
+        if event.char and event.char.isprintable() and not ctrl:
+            self.insert(self._cursor, event.char)
+            return "break"
+        return None
+
+    def _changed(self):
+        self._caret_visible = True
+        self._sync_text()
+
+    def insert(self, index, value):
+        try:
+            pos = len(self._value) if index == "end" else int(index)
+        except (TypeError, ValueError):
+            pos = self._cursor
+        pos = max(0, min(len(self._value), pos))
+        text = str(value)
+        self._value = self._value[:pos] + text + self._value[pos:]
+        self._cursor = pos + len(text)
+        self._changed()
+
+    def delete(self, first, last=None):
+        try:
+            begin = len(self._value) if first == "end" else int(first)
+        except (TypeError, ValueError):
+            begin = self._cursor
+        begin = max(0, min(len(self._value), begin))
+        if last is None:
+            finish = min(len(self._value), begin + 1)
+        elif last == "end":
+            finish = len(self._value)
+        else:
+            try:
+                finish = int(last)
+            except (TypeError, ValueError):
+                finish = begin
+        finish = max(begin, min(len(self._value), finish))
+        self._value = self._value[:begin] + self._value[finish:]
+        self._cursor = min(begin, len(self._value))
+        self._changed()
+
+    def get(self):
+        return self._value
+
+    def raw(self):
+        return self._value
+
+    def focus_set(self):
+        tk.Canvas.focus_set(self)
+
+    def config(self, cnf=None, **kwargs):
+        options = dict(kwargs)
+        if isinstance(cnf, dict):
+            options.update(cnf)
+        if "fg" in options:
+            self._text_fg = options.pop("fg")
+        if "foreground" in options:
+            self._text_fg = options.pop("foreground")
+        if "insertbackground" in options:
+            self._insert_color = options.pop("insertbackground")
+        if "bg" in options:
+            tk.Canvas.configure(self, bg=options.pop("bg"))
+        if options:
+            tk.Canvas.configure(self, **options)
+        self._sync_text()
+    configure = config
 
     def _set_border(self, color, steps=10):
         if self._border_job:
@@ -911,20 +1104,19 @@ class Field(tk.Canvas):
     def _paint(self):
         if not alive(self):
             return
-        w = self.winfo_width()
-        if w < 40:
+        width = self.winfo_width()
+        if width < 40:
             return
-        self.delete("bg")
-        self.itemconfigure(self.win, width=w - 24)
-        rrect(self, 0, 0, w - 1, self.h - 1, 13, fill=self.border, outline="", tags="bg")
-        rrect(self, 1, 1, w - 2, self.h - 2, 12, fill=FIELD, outline="", tags="bg")
-        self.tag_lower("bg")
+        self.delete("field-bg")
+        self.itemconfigure(self.win, width=max(1, width - 26))
+        radius = max(8, min(13, self.h // 2))
+        rrect(self, 0, 0, width - 1, self.h - 1, radius,
+              fill=self.border, outline="", tags="field-bg")
+        rrect(self, 1, 1, width - 2, self.h - 2, radius - 1,
+              fill=FIELD, outline="", tags="field-bg")
+        self.tag_lower("field-bg")
 
-    def get(self):
-        return self.entry.get().strip()
 
-    def raw(self):
-        return self.entry.get()
 
 
 class SelectBox(tk.Canvas):
@@ -1582,8 +1774,8 @@ class App(tk.Tk):
             if not field.entry.get().strip():
                 field.entry.insert(0, value)
                 field.entry.config(fg=MUTED)
-        field.entry.bind("<FocusIn>", focus_in)
-        field.entry.bind("<FocusOut>", focus_out)
+        field.entry.bind("<FocusIn>", focus_in, add="+")
+        field.entry.bind("<FocusOut>", focus_out, add="+")
 
     def update_ram_label(self):
         try:
