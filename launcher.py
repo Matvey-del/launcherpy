@@ -1285,6 +1285,136 @@ class SelectBox(tk.Canvas):
         popup.focus_force()
 
 
+class VersionList(tk.Canvas):
+    """Rounded, high-DPI version list with custom selection and wheel scrolling."""
+    def __init__(self, parent, bg=FIELD, font=(FONT, 10), rows=8):
+        super().__init__(parent, bg=bg, height=rows * 38 + 8,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self.items = []
+        self.selected = None
+        self.top_index = 0
+        self.visible_rows = rows
+        self.row_height = 38
+        self._photo = None
+        self._font_spec = font
+        self.bind("<Configure>", lambda _e: self._paint())
+        self.bind("<Button-1>", self._select_at)
+        self.bind("<MouseWheel>", self._wheel)
+        self.bind("<Button-4>", lambda _e: self._scroll(-1))
+        self.bind("<Button-5>", lambda _e: self._scroll(1))
+
+    def insert(self, index, value):
+        pos = len(self.items) if index == "end" else max(0, int(index))
+        self.items.insert(pos, str(value))
+        if self.selected is not None and pos <= self.selected:
+            self.selected += 1
+        self._paint()
+
+    def delete(self, first, last=None):
+        begin = 0 if first == "end" else max(0, int(first))
+        finish = len(self.items) - 1 if last in (None, "end") else max(begin, int(last))
+        if begin >= len(self.items):
+            return
+        finish = min(finish, len(self.items) - 1)
+        del self.items[begin:finish + 1]
+        if self.selected is not None:
+            if begin <= self.selected <= finish:
+                self.selected = None
+            elif self.selected > finish:
+                self.selected -= finish - begin + 1
+        self.top_index = min(self.top_index, max(0, len(self.items) - self.visible_rows))
+        self._paint()
+
+    def selection_set(self, index):
+        try:
+            idx = int(index)
+        except (TypeError, ValueError):
+            return
+        if 0 <= idx < len(self.items):
+            self.selected = idx
+            self._paint()
+
+    def curselection(self):
+        return () if self.selected is None else (self.selected,)
+
+    def see(self, index):
+        idx = max(0, min(len(self.items) - 1, int(index)))
+        if idx < self.top_index:
+            self.top_index = idx
+        elif idx >= self.top_index + self.visible_rows:
+            self.top_index = idx - self.visible_rows + 1
+        self._paint()
+
+    def _scroll(self, delta):
+        maximum = max(0, len(self.items) - self.visible_rows)
+        self.top_index = max(0, min(maximum, self.top_index + delta))
+        self._paint()
+
+    def _wheel(self, event):
+        self._scroll(-1 if event.delta > 0 else 1)
+        return "break"
+
+    def _select_at(self, event):
+        index = self.top_index + max(0, int(event.y // self.row_height))
+        if index < len(self.items):
+            self.selected = index
+            self._paint()
+        return "break"
+
+    def _paint(self):
+        if not alive(self):
+            return
+        width = max(40, self.winfo_width())
+        height = max(40, self.winfo_height())
+        try:
+            from PIL import Image, ImageDraw, ImageFont, ImageTk
+            scale = 2
+            image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            font_path = os.path.join(os.environ.get("WINDIR", r"C:\Windows"),
+                                     "Fonts", "segoeui.ttf")
+            try:
+                font = ImageFont.truetype(font_path, 10 * scale)
+            except Exception:
+                font = ImageFont.load_default(size=10 * scale)
+            row_h = self.row_height * scale
+            for row in range(self.visible_rows):
+                idx = self.top_index + row
+                if idx >= len(self.items):
+                    break
+                top = row * row_h + 2 * scale
+                bottom = min(height * scale - 2 * scale, top + row_h - 4 * scale)
+                selected = idx == self.selected
+                fill = (57, 63, 73, 245) if selected else (24, 28, 35, 220)
+                outline = (130, 139, 152, 160) if selected else (66, 74, 86, 130)
+                draw.rounded_rectangle(
+                    (2 * scale, top, width * scale - 2 * scale, bottom),
+                    radius=9 * scale, fill=fill, outline=outline, width=1 * scale)
+                label = self.items[idx]
+                bbox = font.getbbox(label, anchor="lt")
+                text_y = top + max(2 * scale, (bottom - top - (bbox[3] - bbox[1])) / 2)
+                draw.text((15 * scale, text_y), label, font=font,
+                          fill=(246, 247, 249, 255), anchor="lt")
+            resampling = getattr(Image, "Resampling", Image)
+            image = image.resize((width, height), resampling.LANCZOS)
+            self._photo = ImageTk.PhotoImage(image)
+            self.delete("version-art")
+            self.create_image(0, 0, image=self._photo, anchor="nw",
+                              tags="version-art")
+        except Exception:
+            self.delete("version-art")
+            for row in range(self.visible_rows):
+                idx = self.top_index + row
+                if idx >= len(self.items):
+                    break
+                y = row * self.row_height + 3
+                fill = "#343a44" if idx == self.selected else "#181c22"
+                rrect(self, 2, y, width - 2, y + 33, 9, fill=fill, outline="")
+                self.create_text(16, y + 16, text=self.items[idx],
+                                 fill=TEXT, anchor="w", font=self._font_spec,
+                                 tags="version-art")
+
+
 class Toggle(tk.Canvas):
     """Переключатель в стиле iOS с анимацией."""
     def __init__(self, parent, var, cmd=None, bg=PANEL):
@@ -2271,9 +2401,7 @@ class App(tk.Tk):
         self.version_filter.pack(fill="x", pady=(6, 3))
         self.version_filter.entry.insert(0, "Поиск версии, например 1.21.4")
         self.version_filter.entry.bind("<KeyRelease>", lambda e: self.fill_versions())
-        self.version_list = tk.Listbox(lp.inner, bg=FIELD, fg=TEXT, selectbackground=RED,
-                                       selectforeground=TEXT, relief="flat", font=(FONT, 10),
-                                       highlightthickness=0, bd=0, activestyle="none", height=8)
+        self.version_list = VersionList(lp.inner, bg=FIELD, font=(FONT, 10), rows=8)
         self.version_list.pack(fill="x", pady=6)
         Btn(lp.inner, "Выбрать версию", self.choose_version, style="primary", h=34).pack(anchor="e")
 
