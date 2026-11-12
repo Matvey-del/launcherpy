@@ -899,6 +899,8 @@ class App(tk.Tk):
             key = "play"
         if remember and self.current and self.current != key:
             self.page_history.append(self.current)
+        if key == "play":
+            self.page_history.clear()
 
         active_key = key if key in self.nav else "more"
         for nav_key, button in self.nav.items():
