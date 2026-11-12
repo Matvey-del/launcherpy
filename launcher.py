@@ -1128,6 +1128,68 @@ class App(tk.Tk):
             style="primary", bg="#252525", h=34, size=9,
             stretch=True).pack(fill="x", pady=(10, 0))
 
+    def open_game_folder(self, name):
+        open_folder(os.path.join(self.settings["root"], name))
+
+    def set_placeholder(self, field, value):
+        field.entry.insert(0, value)
+        field.entry.config(fg=MUTED)
+        def focus_in(_event=None):
+            if field.entry.get() == value:
+                field.entry.delete(0, "end")
+                field.entry.config(fg=TEXT)
+        def focus_out(_event=None):
+            if not field.entry.get().strip():
+                field.entry.insert(0, value)
+                field.entry.config(fg=MUTED)
+        field.entry.bind("<FocusIn>", focus_in)
+        field.entry.bind("<FocusOut>", focus_out)
+
+    def update_ram_label(self):
+        try:
+            self.ram_label.config(text=f"{self.ram_var.get() / 1024:g} ГБ")
+        except (tk.TclError, AttributeError):
+            pass
+
+    # ---------- Серверы ----------
+
+    def server_entries(self):
+        items, seen = [], set()
+        # First include servers already saved by Minecraft itself.
+        for item in read_servers(self.settings["root"]):
+            addr = (item.get("ip") or "").strip()
+            if not addr:
+                continue
+            key = addr.lower()
+            if key not in seen:
+                seen.add(key)
+                items.append({"name": item.get("name") or addr, "address": addr, "source": "Minecraft"})
+        for item in self.settings.get("saved_servers", []) or []:
+            addr = (item.get("address") or "").strip()
+            key = addr.lower()
+            if addr and key not in seen:
+                seen.add(key)
+                items.append({"name": item.get("name") or addr, "address": addr, "source": "Избранное"})
+        return items
+
+    def parse_server_address(self, address):
+        value = (address or "").strip()
+        if value.startswith("[") and "]" in value:
+            host, tail = value[1:].split("]", 1)
+            port = tail[1:] if tail.startswith(":") else "25565"
+        elif value.count(":") == 1:
+            host, port = value.rsplit(":", 1)
+        else:
+            host, port = value, "25565"
+        if not host or not re.fullmatch(r"[A-Za-z0-9._:-]+", host):
+            raise ValueError("Проверь адрес сервера")
+        if not str(port).isdigit() or not 1 <= int(port) <= 65535:
+            raise ValueError("Порт должен быть числом от 1 до 65535")
+        return host, str(int(port))
+
+    def version_label(self):
+        return f"{LOADER_NAMES.get(self.settings.get('loader', 'vanilla'), 'Vanilla')} {self.settings['version']}"
+
     def page_accounts(self, p):
         self.heading(p, "Аккаунты", "Профили для запуска игры")
         if not self.accounts:
