@@ -1,4 +1,5 @@
 import ast
+import base64
 import pathlib
 import unittest
 
@@ -56,6 +57,19 @@ class LauncherStructureTests(unittest.TestCase):
         ]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         self.assertEqual(duplicates, [])
+
+    def test_bundled_wallpaper_is_valid_jpeg(self):
+        wallpaper = ROOT / "assets" / "background.jpg.b64"
+        self.assertTrue(wallpaper.is_file(), "Bundled Minecraft wallpaper is missing")
+        raw = base64.b64decode(wallpaper.read_text(encoding="ascii").strip(), validate=True)
+        self.assertTrue(raw.startswith(b"\\xff\\xd8\\xff"), "Wallpaper payload is not a JPEG")
+
+    def test_lainlauncher_brand_and_wallpaper_loader(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn('self.title("LainLauncher · Minecraft")', source)
+        self.assertIn("self._wallpaper_source_b64", source)
+        self.assertIn("base64.b64decode", source)
+        self.assertNotIn('if not os.path.isfile(self._wallpaper_source):', source)
 
 
 if __name__ == "__main__":
