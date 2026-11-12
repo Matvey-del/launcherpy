@@ -527,7 +527,8 @@ class Panel(tk.Canvas):
             scale = 2
             art_w = max(1, width * scale)
             art_h = max(1, (height - self.SH) * scale)
-            radius = self.radius * scale
+            radius = max(2, min(self.radius, width / 2 - 1,
+                                (height - self.SH) / 2 - 1)) * scale
             surface = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
 
             shadow = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
@@ -666,6 +667,17 @@ class TextLabel(tk.Canvas):
             result.append(line or "")
         return result
 
+    def reserve_text(self, text):
+        """Reserve final text width before a character-by-character reveal."""
+        previous = self._label_text
+        self._label_text = str(text)
+        width, height = self._requested_size()
+        self._label_text = previous
+        if not self._wraplength and not self._label_width_chars:
+            self._reserved_width = max(getattr(self, "_reserved_width", 0), width)
+            tk.Canvas.configure(self, width=self._reserved_width)
+        return width, height
+
     def _requested_size(self):
         size = self._tk_font.actual()
         px = max(6, abs(int(size.get("size", 9))))
@@ -682,11 +694,11 @@ class TextLabel(tk.Canvas):
     def set_caret(self, index=None, visible=False):
         self._caret_index = index
         self._caret_visible = bool(visible and index is not None)
-        self._render()
+        self._schedule_render()
 
     def set_selection(self, start=None, end=None):
         self._selection_range = (start, end) if start is not None and end is not None else None
-        self._render()
+        self._schedule_render()
 
     def _schedule_render(self, _event=None):
         if self._render_job:
@@ -703,8 +715,12 @@ class TextLabel(tk.Canvas):
         try:
             from PIL import Image, ImageDraw, ImageTk
             scale = self._scale
-            width = max(20, self.winfo_width())
-            height = max(18, self.winfo_height())
+            requested_width, requested_height = self._requested_size()
+            width = max(20, self.winfo_width(), requested_width,
+                        getattr(self, "_reserved_width", 0))
+            height = max(18, self.winfo_height(), requested_height)
+            if width != self.winfo_reqwidth():
+                tk.Canvas.configure(self, width=width)
             font = self._pil_font()
             wrap = self._wraplength * scale
             if wrap:
@@ -803,8 +819,13 @@ class TextLabel(tk.Canvas):
         if options:
             tk.Canvas.configure(self, **options)
         requested_width, requested_height = self._requested_size()
+        if not hasattr(self, "_reserved_width"):
+            self._reserved_width = requested_width
         if self._wraplength or self._label_width_chars:
             tk.Canvas.configure(self, width=requested_width)
+        else:
+            self._reserved_width = max(self._reserved_width, requested_width)
+            tk.Canvas.configure(self, width=self._reserved_width)
         tk.Canvas.configure(self, height=requested_height)
         self._render()
         return None
@@ -1666,7 +1687,9 @@ class App(tk.Tk):
         titles = {"play": "Играть", "stats": "Статистика", "accounts": "Аккаунты",
                   "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
                   "settings": "Настройки", "servers": "Серверы", "worlds": "Миры", "more": "Ещё"}
-        self._animate_label(self.header_title, titles.get(key, "LainLauncher").upper(), 14)
+        title_text = titles.get(key, "LainLauncher").upper()
+        self.header_title.reserve_text(title_text)
+        self._animate_label(self.header_title, title_text, 14)
         account = self.current_account()
         name = account["name"] if account else "Без аккаунта"
         self.header_meta.config(text=f"{name}  ·  {self.version_label()}")
@@ -1732,6 +1755,7 @@ class App(tk.Tk):
         title_label = TextLabel(p, text="", bg=BG, fg=TEXT,
                                font=(FONT, 14, "bold"))
         title_label.pack(anchor="w")
+        title_label.reserve_text(title)
         self._animate_label(title_label, title, 17)
         TextLabel(p, text=sub, bg=BG, fg=GREY,
                  font=(FONT, 8)).pack(anchor="w", pady=(1, 8))
