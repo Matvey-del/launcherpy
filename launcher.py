@@ -531,12 +531,12 @@ class Panel(tk.Canvas):
 class Btn(tk.Canvas):
     """Скруглённая кнопка с плавной сменой цвета при наведении."""
     STYLES = {
-        "primary": ("#eeeeee", "#ffffff", "#111111"),
-        "soft": ("#4a4a4a", "#5a5a5a", "#ffffff"),
-        "ghost": ("#383838", "#505050", "#eeeeee"),
-        "danger": ("#4a3333", "#644444", "#ffffff"),
-        "nav": ("#252525", "#3a3a3a", "#b8b8b8"),
-        "nav_on": ("#555555", "#666666", "#ffffff"),
+        "primary": (RED, RED_HI, "#08243a"),
+        "soft": ("#285a77", "#347594", "#f3fbff"),
+        "ghost": ("#204c68", "#2d6382", "#edf8ff"),
+        "danger": ("#643d4a", "#805061", "#ffffff"),
+        "nav": ("#193d59", "#285a77", "#b7d0df"),
+        "nav_on": ("#347594", "#438cab", "#ffffff"),
     }
 
     def __init__(self, parent, text, cmd, style="primary", bg=PANEL, size=10, h=34,
@@ -833,8 +833,6 @@ class App(tk.Tk):
             return
         try:
             from PIL import Image, ImageTk
-            if not os.path.isfile(self._wallpaper_source):
-                return
             w, h = max(1, self.winfo_width()), max(1, self.winfo_height())
             if os.path.isfile(self._wallpaper_source):
                 image = Image.open(self._wallpaper_source).convert("RGB")
@@ -989,7 +987,7 @@ class App(tk.Tk):
                         highlightbackground=GLASS_EDGE, padx=26, pady=22)
         card.pack()
 
-        brand = tk.Label(card, text="LainLauncher", bg="#252525", fg=TEXT,
+        brand = tk.Label(card, text="LainLauncher", bg=GLASS, fg=TEXT,
                          font=(FONT, 19, "bold"))
         brand.pack(anchor="center", pady=(0, 13))
 
@@ -1014,27 +1012,27 @@ class App(tk.Tk):
         self.home_version_box.pack(fill="x", pady=(0, 12))
         self.home_version_box.bind("<<ComboboxSelected>>", self._home_version_changed)
 
-        options = tk.Frame(card, bg="#252525")
+        options = tk.Frame(card, bg=GLASS)
         options.pack(fill="x", pady=(0, 9))
         self.delayed_launch_var = tk.BooleanVar(value=bool(self.settings.get("delayed_launch", False)))
         tk.Checkbutton(options, text="Отложенный запуск", variable=self.delayed_launch_var,
-                       command=self._save_home_options, bg="#252525", fg="#dddddd",
-                       activebackground="#252525", activeforeground="#ffffff",
-                       selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
+                       command=self._save_home_options, bg=GLASS, fg=GREY,
+                       activebackground=GLASS, activeforeground="#ffffff",
+                       selectcolor="#285a77", font=(FONT, 9), bd=0,
                        highlightthickness=0).pack(anchor="w")
         self.snapshots_var = tk.BooleanVar(value=bool(self.settings.get("snapshots", False)))
         tk.Checkbutton(options, text="Показывать снапшоты", variable=self.snapshots_var,
-                       command=self._save_home_snapshots, bg="#252525", fg="#dddddd",
-                       activebackground="#252525", activeforeground="#ffffff",
-                       selectcolor="#3a3a3a", font=(FONT, 9), bd=0,
+                       command=self._save_home_snapshots, bg=GLASS, fg=GREY,
+                       activebackground=GLASS, activeforeground="#ffffff",
+                       selectcolor="#285a77", font=(FONT, 9), bd=0,
                        highlightthickness=0).pack(anchor="w")
 
         self.home_launch_btn = Btn(card, "ЗАПУСТИТЬ", self._home_launch,
-                                   style="primary", bg="#252525", h=47, size=13,
+                                   style="primary", bg=GLASS, h=47, size=13,
                                    width=236)
         self.home_launch_btn.pack(fill="x", pady=(0, 4))
 
-        actions = tk.Frame(card, bg="#252525")
+        actions = tk.Frame(card, bg=GLASS)
         actions.pack(fill="x")
         for column in range(4):
             actions.grid_columnconfigure(column, weight=1, uniform="actions")
@@ -1044,13 +1042,13 @@ class App(tk.Tk):
             ("↻", "Версии и загрузчики", lambda: self.show_page("versions")),
             ("☰", "Меню и настройки", self._open_home_menu),
         ]):
-            btn = Btn(actions, symbol, command, style="ghost", bg="#252525",
+            btn = Btn(actions, symbol, command, style="ghost", bg=GLASS,
                       h=34, size=13, width=52)
             btn.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 3, 0))
             btn.bind("<Enter>", lambda e, w=btn, t=hint: self._set_home_hint(t))
             btn.bind("<Leave>", lambda e: self._set_home_hint(""))
 
-        self.home_hint = tk.Label(card, text="", bg="#252525", fg=GREY,
+        self.home_hint = tk.Label(card, text="", bg=GLASS, fg=GREY,
                                   font=(FONT, 8))
         self.home_hint.pack(pady=(7, 0))
 
@@ -1133,9 +1131,13 @@ class App(tk.Tk):
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
         y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
         win.geometry(f"+{x}+{y}")
-        panel = tk.Frame(win, bg="#252525", padx=18, pady=18)
+        try:
+            win.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass
+        panel = tk.Frame(win, bg=GLASS, padx=18, pady=18)
         panel.pack(fill="both", expand=True, padx=12, pady=12)
-        tk.Label(panel, text="МЕНЮ", bg="#252525", fg=TEXT,
+        tk.Label(panel, text="МЕНЮ", bg=GLASS, fg=TEXT,
                  font=(FONT, 13, "bold")).pack(anchor="w", pady=(0, 12))
         entries = [
             ("Настройки", "settings"), ("Аккаунты", "accounts"),
@@ -1145,11 +1147,22 @@ class App(tk.Tk):
         ]
         for title, page in entries:
             Btn(panel, title, lambda key=page: (win.destroy(), self.show_page(key)),
-                style="ghost", bg="#252525", h=31, size=9,
+                style="ghost", bg=GLASS, h=31, size=9,
                 stretch=True).pack(fill="x", pady=2)
         Btn(panel, "НАЗАД К ЗАПУСКУ", lambda: (win.destroy(), self.show_page("play")),
-            style="primary", bg="#252525", h=34, size=9,
+            style="primary", bg=GLASS, h=34, size=9,
             stretch=True).pack(fill="x", pady=(10, 0))
+        self._fade_in_window(win)
+
+    def _fade_in_window(self, window, step=0, steps=10):
+        if not alive(window):
+            return
+        try:
+            window.attributes("-alpha", min(1.0, float(step + 1) / steps))
+        except tk.TclError:
+            return
+        if step + 1 < steps:
+            window.after(18, lambda: self._fade_in_window(window, step + 1, steps))
 
     def open_game_folder(self, name):
         open_folder(os.path.join(self.settings["root"], name))
