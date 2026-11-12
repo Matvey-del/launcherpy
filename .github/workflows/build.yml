@@ -11,7 +11,7 @@ on:
       - main
 
 concurrency:
-  group: lainlauncher-windows-build-\${{ github.ref }}
+  group: lainlauncher-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
