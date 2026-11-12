@@ -1,4 +1,4 @@
-import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct, zipfile, sys
+import os, re, json, hashlib, shutil, threading, subprocess, ctypes, uuid, math, time, gzip, struct, zipfile, sys, base64, io
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, filedialog
@@ -37,18 +37,21 @@ NAV = [("play", "Играть"), ("versions", "Версии"), ("servers", "Се
 LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
 
 # Monochrome palette: charcoal surfaces, soft greys and clean white accents.
-BG = "#111111"
-SIDE = "#191919"
-PANEL = "#242424"
-FIELD = "#303030"
-LINE = "#505050"
-SHADOW = "#080808"
-RED = "#eeeeee"
-RED_HI = "#ffffff"
-RED_DARK = "#555555"
-TEXT = "#f5f5f5"
-GREY = "#b8b8b8"
-MUTED = "#858585"
+# LainLauncher ocean-glass palette.
+BG = "#102b42"
+SIDE = "#173a55"
+PANEL = "#1b405c"
+FIELD = "#12324b"
+LINE = "#618da8"
+SHADOW = "#081c2c"
+RED = "#83d7ec"
+RED_HI = "#c4f2ff"
+RED_DARK = "#285a77"
+TEXT = "#f3fbff"
+GREY = "#b7d0df"
+MUTED = "#85a8bd"
+GLASS = "#193d59"
+GLASS_EDGE = "#8bbdd5"
 FONT = "Segoe UI"
 
 # Profile artwork bundled with the launcher. GIF is supported by Tkinter on Windows 7.
@@ -779,13 +782,14 @@ class Avatar(tk.Canvas):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("STIVOX LAUNCHER 3.1 · Minecraft")
+        self.title("LainLauncher · Minecraft")
         self.geometry("760x520")
         self.minsize(560, 400)
         self.configure(bg=BG)
         self._wallpaper_photo = None
         self._wallpaper_label = None
-        self._wallpaper_source = os.path.join(ASSET_DIR, "background.png")
+        self._wallpaper_source = os.path.join(ASSET_DIR, "background.jpg")
+        self._wallpaper_source_b64 = self._wallpaper_source + ".b64"
         self.bind("<Configure>", self._resize_wallpaper)
 
         self.settings = load_json(CONFIG_FILE, {})
@@ -832,7 +836,14 @@ class App(tk.Tk):
             if not os.path.isfile(self._wallpaper_source):
                 return
             w, h = max(1, self.winfo_width()), max(1, self.winfo_height())
-            image = Image.open(self._wallpaper_source).convert("RGB")
+            if os.path.isfile(self._wallpaper_source):
+                image = Image.open(self._wallpaper_source).convert("RGB")
+            elif os.path.isfile(self._wallpaper_source_b64):
+                with open(self._wallpaper_source_b64, "r", encoding="ascii") as wallpaper_file:
+                    raw = base64.b64decode(wallpaper_file.read().strip())
+                image = Image.open(io.BytesIO(raw)).convert("RGB")
+            else:
+                return
             ratio = max(w / image.width, h / image.height)
             resampling = getattr(Image, "Resampling", Image)
             image = image.resize((int(image.width * ratio), int(image.height * ratio)), resampling.LANCZOS)
@@ -855,14 +866,13 @@ class App(tk.Tk):
         """Minimal launcher shell: a single compact panel centered on a dark canvas."""
         self.configure(bg=BG)
         self.nav = {}
-        self.header_title = tk.Label(self, text="STIVOX", bg=BG, fg=TEXT,
+        self.header_title = tk.Label(self, text="LainLauncher", bg=BG, fg=TEXT,
                                      font=(FONT, 1))
         self.header_meta = tk.Label(self, text="", bg=BG, fg=GREY, font=(FONT, 1))
         self.top_status = tk.Label(self, text="● ГОТОВ", bg=BG, fg=GREY,
                                    font=(FONT, 8, "bold"))
-        self.stage = tk.Frame(self, bg=BG)
-        self.stage.place(relx=0.5, rely=0.5, anchor="center",
-                         relwidth=1, relheight=1)
+        # Page frames are bounded glass panels so the Minecraft wallpaper remains visible.
+        self.stage = self
     def show_page(self, key, animate=True):
         # Secondary destinations live under the "Ещё" section in the bottom dock.
         active_key = key if key in self.nav else "more"
@@ -876,7 +886,7 @@ class App(tk.Tk):
         titles = {"play": "Играть", "stats": "Статистика", "accounts": "Аккаунты",
                   "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
                   "settings": "Настройки", "servers": "Серверы", "worlds": "Миры", "more": "Ещё"}
-        self.header_title.config(text=titles.get(key, "STIVOX").upper())
+        self.header_title.config(text=titles.get(key, "LainLauncher").upper())
         account = self.current_account()
         name = account["name"] if account else "Без аккаунта"
         self.header_meta.config(text=f"{name}  ·  {self.version_label()}")
@@ -894,18 +904,31 @@ class App(tk.Tk):
             if old is not None and alive(old):
                 old.place_configure(x=0)
 
-        new = tk.Frame(self.stage, bg=BG)
+        page_sizes = {
+            "play": (430, 410), "more": (650, 450), "settings": (670, 470),
+            "accounts": (660, 470), "versions": (660, 470), "servers": (670, 470),
+            "mods": (660, 470), "worlds": (670, 470), "doctor": (670, 470),
+            "stats": (650, 460),
+        }
+        target_w, target_h = page_sizes.get(key, (660, 470))
+        w = min(target_w, max(360, self.winfo_width() - 32))
+        h = min(target_h, max(300, self.winfo_height() - 32))
+        new = tk.Frame(self.stage, bg=BG, highlightthickness=1,
+                       highlightbackground=GLASS_EDGE)
+        new.configure(width=w, height=h)
+        new.pack_propagate(False)
         self.builders[key](new)
         self.page = new
         if animate and old is not None and alive(old):
             self.outgoing = old
-            new.place(x=28 * direction, y=0, relwidth=1, relheight=1)
+            new.place(relx=0.5, rely=0.5, anchor="center", x=28 * direction,
+                      width=w, height=h)
             new.lift()
             self._slide(new, old, 28 * direction, 0)
         else:
             if old is not None and alive(old):
                 old.destroy()
-            new.place(x=0, y=0, relwidth=1, relheight=1)
+            new.place(relx=0.5, rely=0.5, anchor="center", width=w, height=h)
 
     def _slide(self, new, old, start, step, steps=12):
         if not (alive(new) and alive(old)):
@@ -962,11 +985,11 @@ class App(tk.Tk):
         shell = tk.Frame(p, bg=BG)
         shell.place(relx=0.5, rely=0.5, anchor="center")
 
-        card = tk.Frame(shell, bg="#252525", highlightthickness=1,
-                        highlightbackground="#555555", padx=26, pady=22)
+        card = tk.Frame(shell, bg=GLASS, highlightthickness=1,
+                        highlightbackground=GLASS_EDGE, padx=26, pady=22)
         card.pack()
 
-        brand = tk.Label(card, text="STIVOX", bg="#252525", fg="#f2f2f2",
+        brand = tk.Label(card, text="LainLauncher", bg="#252525", fg=TEXT,
                          font=(FONT, 19, "bold"))
         brand.pack(anchor="center", pady=(0, 13))
 
@@ -1027,7 +1050,7 @@ class App(tk.Tk):
             btn.bind("<Enter>", lambda e, w=btn, t=hint: self._set_home_hint(t))
             btn.bind("<Leave>", lambda e: self._set_home_hint(""))
 
-        self.home_hint = tk.Label(card, text="", bg="#252525", fg="#999999",
+        self.home_hint = tk.Label(card, text="", bg="#252525", fg=GREY,
                                   font=(FONT, 8))
         self.home_hint.pack(pady=(7, 0))
 
@@ -1038,15 +1061,15 @@ class App(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Home.TCombobox", fieldbackground="#333333",
-                        background="#333333", foreground="#f0f0f0",
-                        arrowcolor="#eeeeee", bordercolor="#555555",
-                        lightcolor="#555555", darkcolor="#555555",
+        style.configure("Home.TCombobox", fieldbackground="#12334c",
+                        background="#1b4965", foreground=TEXT,
+                        arrowcolor=RED_HI, bordercolor=GLASS_EDGE,
+                        lightcolor=GLASS_EDGE, darkcolor="#0a253a",
                         padding=6, font=(FONT, 9))
         style.map("Home.TCombobox",
-                  fieldbackground=[("readonly", "#333333")],
-                  foreground=[("readonly", "#f0f0f0")],
-                  selectbackground=[("readonly", "#444444")],
+                  fieldbackground=[("readonly", "#12334c")],
+                  foreground=[("readonly", TEXT)],
+                  selectbackground=[("readonly", "#285a77")],
                   selectforeground=[("readonly", "#ffffff")])
         box = ttk.Combobox(parent, textvariable=variable, values=values,
                            state="readonly", style="Home.TCombobox",
@@ -1101,7 +1124,7 @@ class App(tk.Tk):
 
     def _open_home_menu(self):
         win = tk.Toplevel(self)
-        win.title("STIVOX — меню")
+        win.title("LainLauncher — меню")
         win.configure(bg=BG)
         win.resizable(False, False)
         win.transient(self)
@@ -1481,7 +1504,7 @@ class App(tk.Tk):
                         raise ValueError("Архив содержит символическую ссылку")
                 level_files = [i for i in files if i.filename.replace("\\", "/").endswith("/level.dat")]
                 if not level_files or len(roots) != 1:
-                    raise ValueError("Не удалось распознать резервную копию мира STIVOX")
+                    raise ValueError("Не удалось распознать резервную копию мира LainLauncher")
                 if zf.testzip() is not None:
                     raise ValueError("ZIP-архив повреждён")
                 source_root = next(iter(roots))
@@ -1785,7 +1808,7 @@ class App(tk.Tk):
                         rows.append(("%s  %s" % ("ON " if enabled else "OFF", filename), modid))
                 except Exception as exc:
                     bad.append("Повреждённый JAR: %s (%s)" % (filename, exc))
-        report = ["STIVOX 3.1 · MOD DOCTOR", "Папка: " + mods_dir,
+        report = ["LainLauncher · MOD DOCTOR", "Папка: " + mods_dir,
                   "Найдено JAR: %d (включено %d, отключено %d)" %
                   (len(rows), sum(1 for x in rows if x[0].startswith("ON ")),
                    sum(1 for x in rows if x[0].startswith("OFF "))), ""]
@@ -2178,7 +2201,7 @@ class App(tk.Tk):
     # ---------- Запуск ----------
     def start_game(self, server=None):
         if self.launching or self.game_running:
-            messagebox.showinfo("STIVOX", "Minecraft уже запускается или работает.")
+            messagebox.showinfo("LainLauncher", "Minecraft уже запускается или работает.")
             return
         acc = self.current_account()
         if not acc:
