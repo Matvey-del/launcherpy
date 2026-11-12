@@ -600,6 +600,7 @@ class TextLabel(tk.Canvas):
         self._render_job = None
         self._caret_index = None
         self._caret_visible = False
+        self._selection_range = None
         self._tk_font = tkfont.Font(root=parent, font=font)
         requested_width, requested_height = self._requested_size()
         super().__init__(parent, width=requested_width, height=requested_height,
@@ -683,6 +684,10 @@ class TextLabel(tk.Canvas):
         self._caret_visible = bool(visible and index is not None)
         self._render()
 
+    def set_selection(self, start=None, end=None):
+        self._selection_range = (start, end) if start is not None and end is not None else None
+        self._render()
+
     def _schedule_render(self, _event=None):
         if self._render_job:
             try:
@@ -741,6 +746,14 @@ class TextLabel(tk.Canvas):
                 else:
                     x = origin_x
                 y = origin_y + index * line_height
+                if index == 0 and self._selection_range is not None:
+                    select_start, select_end = self._selection_range
+                    left = font.getlength(line[:max(0, min(len(line), select_start))])
+                    right = font.getlength(line[:max(0, min(len(line), select_end))])
+                    if right > left:
+                        draw.rounded_rectangle(
+                            (x + left, y + 1 * scale, x + right, y + line_height - 1 * scale),
+                            radius=3 * scale, fill=(112, 121, 134, 150))
                 draw.text((x + 0.5 * scale, y + 1 * scale), line,
                           font=font, fill=(0, 0, 0, 56), anchor="lt")
                 draw.text((x, y), line, font=font, fill=self._label_fg, anchor="lt")
@@ -905,6 +918,7 @@ class Field(tk.Canvas):
         self._text_fg = TEXT
         self._insert_color = RED_HI
         self._cursor = 0
+        self._selection = None
         self._focused = False
         self._caret_visible = False
         self._border_job = None
@@ -917,17 +931,42 @@ class Field(tk.Canvas):
 
         self.bind("<Configure>", lambda e: self._paint())
         self.bind("<Button-1>", self._focus_input)
+        self._text_widget.bind("<Button-1>", self._focus_input)
         self.bind("<FocusIn>", self._on_focus_in, add="+")
         self.bind("<FocusOut>", self._on_focus_out, add="+")
         self.bind("<KeyPress>", self._on_key)
         self._sync_text()
         self._paint()
 
-    def _focus_input(self, _event=None):
+    def _focus_input(self, event=None):
         self.focus_set()
+        if event is not None and event.widget is self._text_widget:
+            local_x = event.x
+        else:
+            local_x = max(0, event.x - 13) if event is not None else self.winfo_width()
+        probe = ""
         self._cursor = len(self._value)
+        for index, char in enumerate(self._display_value()):
+            width = self._tk_measure(probe + char)
+            if local_x < width:
+                self._cursor = index
+                break
+            probe += char
+        self._selection = None
         self._sync_text()
         return "break"
+
+    def _tk_measure(self, text):
+        return tkfont.Font(root=self, font=(FONT, 11)).measure(text)
+
+    def _erase_selection(self):
+        if self._selection is None:
+            return False
+        start, end = sorted(self._selection)
+        self._value = self._value[:start] + self._value[end:]
+        self._cursor = start
+        self._selection = None
+        return True
 
     def _on_focus_in(self, _event=None):
         self._focused = True
@@ -964,12 +1003,17 @@ class Field(tk.Canvas):
         if not alive(self._text_widget):
             return
         self._text_widget.config(text=self._display_value(), fg=self._text_fg)
+        if self._selection is None:
+            self._text_widget.set_selection()
+        else:
+            self._text_widget.set_selection(*self._selection)
         self._text_widget.set_caret(self._cursor, self._caret_visible and self._focused)
 
     def _on_key(self, event):
         key = event.keysym
         ctrl = bool(event.state & 0x4)
         if ctrl and key.lower() == "a":
+            self._selection = (0, len(self._value))
             self._cursor = len(self._value)
             self._caret_visible = True
             self._sync_text()
@@ -989,31 +1033,43 @@ class Field(tk.Canvas):
             except tk.TclError:
                 pass
             return "break"
+        shift = bool(event.state & 0x1)
         if key == "BackSpace":
-            if self._cursor > 0:
+            if not self._erase_selection() and self._cursor > 0:
                 self._value = self._value[:self._cursor - 1] + self._value[self._cursor:]
                 self._cursor -= 1
-                self._changed()
+            self._changed()
             return "break"
         if key == "Delete":
-            if self._cursor < len(self._value):
+            if not self._erase_selection() and self._cursor < len(self._value):
                 self._value = self._value[:self._cursor] + self._value[self._cursor + 1:]
-                self._changed()
-            return "break"
-        if key == "Left":
-            self._cursor = max(0, self._cursor - 1)
             self._changed()
             return "break"
-        if key == "Right":
-            self._cursor = min(len(self._value), self._cursor + 1)
+        if key in ("Left", "Right"):
+            old_cursor = self._cursor
+            if key == "Left":
+                self._cursor = max(0, self._cursor - 1)
+            else:
+                self._cursor = min(len(self._value), self._cursor + 1)
+            if shift:
+                begin = self._selection[0] if self._selection else old_cursor
+                self._selection = (begin, self._cursor)
+                if self._selection[0] == self._selection[1]:
+                    self._selection = None
+            else:
+                self._selection = None
             self._changed()
             return "break"
-        if key == "Home":
-            self._cursor = 0
-            self._changed()
-            return "break"
-        if key == "End":
-            self._cursor = len(self._value)
+        if key in ("Home", "End"):
+            old_cursor = self._cursor
+            self._cursor = 0 if key == "Home" else len(self._value)
+            if shift:
+                begin = self._selection[0] if self._selection else old_cursor
+                self._selection = (begin, self._cursor)
+                if self._selection[0] == self._selection[1]:
+                    self._selection = None
+            else:
+                self._selection = None
             self._changed()
             return "break"
         if key in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
@@ -1032,6 +1088,9 @@ class Field(tk.Canvas):
         try:
             pos = len(self._value) if index == "end" else int(index)
         except (TypeError, ValueError):
+            pos = self._cursor
+        if self._selection is not None:
+            self._erase_selection()
             pos = self._cursor
         pos = max(0, min(len(self._value), pos))
         text = str(value)
@@ -1057,10 +1116,11 @@ class Field(tk.Canvas):
         finish = max(begin, min(len(self._value), finish))
         self._value = self._value[:begin] + self._value[finish:]
         self._cursor = min(begin, len(self._value))
+        self._selection = None
         self._changed()
 
     def get(self):
-        return self._value
+        return self._value.strip()
 
     def raw(self):
         return self._value
@@ -1186,42 +1246,43 @@ class SelectBox(tk.Canvas):
         y = self.winfo_rooty() + self.winfo_height() + 6
         popup.geometry(f"{width}x{height}+{x}+{y}")
 
-        frame = tk.Frame(popup, bg=PANEL, highlightthickness=1,
-                         highlightbackground=LINE, padx=5, pady=5)
-        frame.pack(fill="both", expand=True)
-        listing = tk.Listbox(frame, bg=PANEL, fg=TEXT,
-                             selectbackground=RED_DARK, selectforeground=TEXT,
-                             relief="flat", bd=0, highlightthickness=0,
-                             activestyle="none", font=(FONT, 9),
-                             height=min(7, len(self.values)))
-        listing.pack(fill="both", expand=True)
-        for item in self.values:
-            listing.insert("end", item)
-        try:
-            index = self.values.index(self.variable.get())
-            listing.selection_set(index)
-            listing.see(index)
-        except ValueError:
-            pass
+        frame = Panel(popup, bg=PANEL, fill=GLASS, radius=18)
+        frame.pack(fill="both", expand=True, padx=3, pady=3)
 
-        def choose(_event=None):
-            selection = listing.curselection()
-            if selection:
-                self.variable.set(self.values[selection[0]])
-                self._paint()
-                if self.command:
-                    self.command()
+        def choose(value):
+            self.variable.set(value)
+            self._paint()
+            if self.command:
+                self.command()
             if alive(popup):
                 popup.destroy()
             self.popup = None
 
-        listing.bind("<ButtonRelease-1>", choose)
-        listing.bind("<Return>", choose)
+        for item in self.values:
+            active = item == self.variable.get()
+            option = Btn(frame.inner, item,
+                         lambda value=item: choose(value),
+                         style="soft" if active else "ghost",
+                         bg=GLASS, h=34, size=9, stretch=True, align="left")
+            option.pack(fill="x", pady=2)
+
+        try:
+            popup.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass
+
+        def fade(step=0, steps=9):
+            if not alive(popup):
+                return
+            try:
+                popup.attributes("-alpha", min(1.0, (step + 1) / steps))
+            except tk.TclError:
+                return
+            if step + 1 < steps:
+                popup.after(14, fade, step + 1)
+        fade()
         popup.bind("<Escape>", lambda _e: popup.destroy())
-        popup.bind("<FocusOut>", lambda _e: popup.after(
-            120, lambda: popup.destroy() if alive(popup) else None))
         popup.focus_force()
-        listing.focus_set()
 
 
 class Toggle(tk.Canvas):
