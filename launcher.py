@@ -521,15 +521,65 @@ class Panel(tk.Canvas):
             self.config(height=height)
 
         self.delete("glass")
-        r = self.radius
-        rrect(self, 5, self.SH + 4, width - 5, height - 1, r,
-              fill="#07080b", outline="", tags="glass")
-        rrect(self, 2, self.SH + 1, width - 2, height - 4, r,
-              fill="#11151b", outline="", tags="glass")
-        rrect(self, 0, 0, width - 1, height - self.SH - 2, r,
-              fill=self.fill, outline="#454c57", width=1, tags="glass")
-        self.create_line(r + 8, 1, width - r - 8, 1,
-                         fill="#59616d", width=1, tags="glass")
+        try:
+            # Supersampled alpha artwork: a real rounded gradient surface, not a Tk frame.
+            from PIL import Image, ImageDraw, ImageFilter, ImageTk
+            scale = 2
+            art_w = max(1, width * scale)
+            art_h = max(1, (height - self.SH) * scale)
+            radius = self.radius * scale
+            surface = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+
+            shadow = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow)
+            shadow_draw.rounded_rectangle(
+                (12, 13, art_w - 12, art_h - 2),
+                radius=radius, fill=(0, 0, 0, 155))
+            shadow = shadow.filter(ImageFilter.GaussianBlur(15 * scale))
+            surface.alpha_composite(shadow)
+
+            base = tuple(int(self.fill[i:i + 2], 16) for i in (1, 3, 5))
+            top = tuple(min(255, int(channel * 1.24 + 5)) for channel in base)
+            bottom = tuple(max(0, int(channel * 0.88)) for channel in base)
+            gradient = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            pixels = gradient.load()
+            for y in range(art_h):
+                t = y / max(1, art_h - 1)
+                color = tuple(int(top[c] * (1 - t) + bottom[c] * t) for c in range(3))
+                for x in range(art_w):
+                    pixels[x, y] = (*color, 242)
+
+            mask = Image.new("L", (art_w, art_h), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.rounded_rectangle(
+                (1, 1, art_w - 2, art_h - 2),
+                radius=radius, fill=255)
+            gradient.putalpha(Image.eval(mask, lambda value: int(value * 0.96)))
+            surface.alpha_composite(gradient)
+
+            rim = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            rim_draw = ImageDraw.Draw(rim)
+            rim_draw.rounded_rectangle(
+                (1, 1, art_w - 2, art_h - 2), radius=radius,
+                outline=(180, 188, 201, 76), width=2)
+            rim_draw.line((radius + 16, 3, art_w - radius - 16, 3),
+                          fill=(230, 234, 242, 48), width=2)
+            surface.alpha_composite(rim)
+
+            resampling = getattr(Image, "Resampling", Image)
+            surface = surface.resize((width, max(1, height - self.SH)), resampling.LANCZOS)
+            self._glass_photo = ImageTk.PhotoImage(surface)
+            self.create_image(0, 0, image=self._glass_photo,
+                              anchor="nw", tags="glass")
+        except Exception:
+            # Fallback for systems without Pillow; keep the same rounded silhouette.
+            r = self.radius
+            rrect(self, 5, self.SH + 4, width - 5, height - 1, r,
+                  fill="#07080b", outline="", tags="glass")
+            rrect(self, 2, self.SH + 1, width - 2, height - 4, r,
+                  fill="#11151b", outline="", tags="glass")
+            rrect(self, 0, 0, width - 1, height - self.SH - 2, r,
+                  fill=self.fill, outline="#454c57", width=1, tags="glass")
         self.tag_lower("glass")
 
 class Btn(tk.Canvas):
@@ -642,7 +692,7 @@ class Field(tk.Canvas):
         self.bind("<Configure>", lambda e: self._paint())
         self.bind("<Button-1>", lambda e: self.entry.focus_set())
 
-    def _set_border(self, color, steps=6):
+    def _set_border(self, color, steps=10):
         if self._border_job:
             try:
                 self.after_cancel(self._border_job)
@@ -798,7 +848,7 @@ class Toggle(tk.Canvas):
         if self.cmd:
             self.cmd()
 
-    def _animate(self, target, steps=6):
+    def _animate(self, target, steps=10):
         start = self.pos
 
         def step(k=1):
@@ -1134,7 +1184,17 @@ class App(tk.Tk):
     def page_play(self, p):
         """Airy home screen built from rounded custom-rendered controls."""
         shell = tk.Frame(p, bg=BG)
-        shell.place(relx=0.5, rely=0.49, anchor="center")
+        shell.place(relx=0.5, rely=0.49, y=20, anchor="center")
+
+        def settle_home(step=0, steps=18):
+            if not alive(shell):
+                return
+            progress = (step + 1) / steps
+            eased = 1 - (1 - progress) ** 3
+            shell.place_configure(y=int(20 * (1 - eased)))
+            if step + 1 < steps:
+                self.after(14, settle_home, step + 1, steps)
+        settle_home()
 
         card = Panel(shell, bg=BG, fill=GLASS, radius=28)
         card.configure(width=468)
