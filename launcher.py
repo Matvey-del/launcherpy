@@ -1214,7 +1214,7 @@ class SelectBox(tk.Canvas):
         height = self.winfo_height()
         if width < 40:
             return
-        edge = #777777 if self.hover else LINE
+        edge = "#777777" if self.hover else LINE
         rrect(self, 1, 1, width - 2, height - 2, 12,
               fill=edge, outline="", tags="select")
         rrect(self, 2, 2, width - 3, height - 3, 11,
