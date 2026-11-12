@@ -760,7 +760,7 @@ class SelectBox(tk.Canvas):
         height = self.winfo_height()
         if width < 40:
             return
-        edge = "#737c89" if self.hover else LINE
+        edge = #777777 if self.hover else LINE
         rrect(self, 1, 1, width - 2, height - 2, 12,
               fill=edge, outline="", tags="select")
         rrect(self, 2, 2, width - 3, height - 3, 11,
@@ -1277,28 +1277,6 @@ class App(tk.Tk):
         self.home_hint = tk.Label(content, text="", bg=GLASS, fg=MUTED,
                                   font=(FONT, 8))
         self.home_hint.pack(pady=(12, 0))
-
-    def _home_combo(self, parent, variable, values):
-        from tkinter import ttk
-        style = ttk.Style(self)
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        style.configure("Home.TCombobox", fieldbackground=FIELD,
-                        background=PANEL, foreground=TEXT,
-                        arrowcolor=RED_HI, bordercolor=GLASS_EDGE,
-                        lightcolor=GLASS_EDGE, darkcolor=BG,
-                        padding=7, font=(FONT, 9), relief="flat")
-        style.map("Home.TCombobox",
-                  fieldbackground=[("readonly", FIELD)],
-                  foreground=[("readonly", TEXT)],
-                  selectbackground=[("readonly", RED_DARK)],
-                  selectforeground=[("readonly", TEXT)])
-        box = ttk.Combobox(parent, textvariable=variable, values=values,
-                           state="readonly", style="Home.TCombobox",
-                           font=(FONT, 9))
-        return box
 
     def _set_home_hint(self, value):
         if hasattr(self, "home_hint") and alive(self.home_hint):
