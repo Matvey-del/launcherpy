@@ -708,7 +708,8 @@ class TextLabel(tk.Canvas):
             font = self._pil_font()
             wrap = self._wraplength * scale
             if wrap:
-                wrap = min(wrap, max(20, width * scale - 8 * scale))
+                available = wrap if width < 40 else min(wrap, max(20, width * scale - 8 * scale))
+                wrap = available
             lines = self._wrapped_lines(font, wrap)
             bbox = font.getbbox("Ag", anchor="lt")
             line_height = max(1, bbox[3] - bbox[1] + 4 * scale)
@@ -923,6 +924,7 @@ class Field(tk.Canvas):
         self._caret_visible = False
         self._border_job = None
         self._caret_job = None
+        self._measure_font = tkfont.Font(root=self, font=(FONT, 11))
         self._text_widget = TextLabel(self, text="", bg=FIELD, fg=TEXT,
                                       font=(FONT, 11), anchor="w")
         self.win = self.create_window(13, h // 2, anchor="w",
@@ -957,7 +959,7 @@ class Field(tk.Canvas):
         return "break"
 
     def _tk_measure(self, text):
-        return tkfont.Font(root=self, font=(FONT, 11)).measure(text)
+        return self._measure_font.measure(text)
 
     def _erase_selection(self):
         if self._selection is None:
