@@ -71,17 +71,39 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("class Btn(tk.Canvas):", self.source)
         self.assertIn("class Field(tk.Canvas):", self.source)
         self.assertIn("class Toggle(tk.Canvas):", self.source)
-        self.assertIn("def _animate_label(self", self.source)
-        self.assertIn("style=\"nav\"", self.source)
-        self.assertIn("Toggle(option_row", self.source)
         self.assertIn("class SelectBox(tk.Canvas):", self.source)
+        self.assertIn("class TextLabel(tk.Canvas):", self.source)
+        self.assertNotIn("tk.Label(", self.source)
         self.assertNotIn("ttk.Combobox", self.source)
         self.assertNotIn("def _home_combo(", self.source)
         self.assertIn("ImageFilter.GaussianBlur", self.source)
         self.assertIn("def settle_home(", self.source)
+        self.assertIn("def _animate_label(self", self.source)
         self.assertIn("new.place(x=0, y=0, relwidth=1, relheight=1)", self.source)
         self.assertIn("card = Panel(shell, bg=BG, fill=GLASS, radius=28)", self.source)
-        self.assertIn('highlightthickness=0, bd=0', self.source)
+
+    def test_custom_text_renderer_has_safe_fallback(self):
+        text_class = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "TextLabel"
+        )
+        names = {
+            node.name for node in text_class.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertTrue({"_pil_font", "_render", "config", "_wrapped_lines"}.issubset(names))
+        self.assertIn("self._tk_font", self.source)
+        self.assertIn("self._render()", self.source)
+        self.assertIn("ImageTk.PhotoImage(image)", self.source)
+
+    def test_build_workflow_uses_explicit_powershell_argument_list(self):
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("$pyInstallerArgs = @(", workflow)
+        self.assertNotIn("$args = @(", workflow)
+        self.assertIn("& python -m PyInstaller @pyInstallerArgs launcher.py", workflow)
+        self.assertIn("python -m pip check", workflow)
+        self.assertIn("python -m py_compile launcher.py", workflow)
 
 
 if __name__ == "__main__":
