@@ -1,4 +1,4 @@
-name: Build STIVOX Launcher
+name: Build LainLauncher
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - "redesign/**"
 
 concurrency:
-  group: stovix-windows-build-${{ github.ref }}
+  group: lainlauncher-windows-build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
             "--onefile",
             "--noconsole",
             "--clean",
-            "--name", "STIVOXLauncher",
+            "--name", "LainLauncher",
             "--collect-all", "minecraft_launcher_lib"
           )
           if (Test-Path "assets") {
@@ -56,13 +56,13 @@ jobs:
 
       - name: Verify executable
         run: |
-          if (!(Test-Path "dist/STIVOXLauncher.exe")) {
-            throw "PyInstaller did not produce STIVOXLauncher.exe"
+          if (!(Test-Path "dist/LainLauncher.exe")) {
+            throw "PyInstaller did not produce LainLauncher.exe"
           }
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: STIVOXLauncher-Windows
+          name: LainLauncher-Windows
           path: dist/STIVOXLauncher.exe
           if-no-files-found: error
