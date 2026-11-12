@@ -6,9 +6,12 @@ on:
     branches:
       - main
       - "redesign/**"
+  pull_request:
+    branches:
+      - main
 
 concurrency:
-  group: lainlauncher-windows-build-${{ github.ref }}
+  group: lainlauncher-windows-build-\${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -16,9 +19,8 @@ permissions:
 
 jobs:
   build:
-    # Windows Server 2022 runner produces a Windows desktop executable
-    # compatible with supported Windows 10 and Windows 11 systems.
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -27,38 +29,67 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: "x64"
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
+          if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
           python -m pip install minecraft-launcher-lib==6.5 pyinstaller==6.11.1 Pillow==11.0.0
+          if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
+          python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw "Installed dependencies are inconsistent" }
+
+      - name: Verify runtime imports
+        shell: pwsh
+        run: |
+          python -c "import tkinter; import minecraft_launcher_lib; import minecraft_launcher_lib.runtime; from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageTk; print('Tkinter, Minecraft launcher library and Pillow renderer are ready')"
+          if ($LASTEXITCODE -ne 0) { throw "A required runtime import failed" }
 
       - name: Check Python syntax
-        run: python -m py_compile launcher.py
+        shell: pwsh
+        run: |
+          python -m py_compile launcher.py
+          if ($LASTEXITCODE -ne 0) { throw "launcher.py has a syntax error" }
 
-      - name: Validate launcher navigation and helper methods
-        run: python -m unittest discover -s tests -v
+      - name: Validate launcher structure and visual components
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { throw "Launcher regression tests failed" }
 
       - name: Build Windows executable
         shell: pwsh
         run: |
-          $args = @(
+          $pyInstallerArgs = @(
             "--onefile",
             "--noconsole",
             "--clean",
             "--name", "LainLauncher",
-            "--collect-all", "minecraft_launcher_lib"
+            "--collect-all", "minecraft_launcher_lib",
+            "--hidden-import", "minecraft_launcher_lib.runtime"
           )
-          if (Test-Path "assets") {
-            $args += @("--add-data", "assets;assets")
+          if (Test-Path -LiteralPath "assets") {
+            $pyInstallerArgs += @("--add-data", "assets;assets")
           }
-          python -m PyInstaller @args launcher.py
+          & python -m PyInstaller @pyInstallerArgs launcher.py
+          if ($LASTEXITCODE -ne 0) {
+            throw "PyInstaller failed with exit code $LASTEXITCODE"
+          }
 
       - name: Verify executable
+        shell: pwsh
         run: |
-          if (!(Test-Path "dist/LainLauncher.exe")) {
-            throw "PyInstaller did not produce LainLauncher.exe"
+          $exe = "dist/LainLauncher.exe"
+          if (!(Test-Path -LiteralPath $exe)) {
+            throw "PyInstaller did not produce dist/LainLauncher.exe"
           }
+          $file = Get-Item -LiteralPath $exe
+          if ($file.Length -lt 1000000) {
+            throw "The generated executable is unexpectedly small ($($file.Length) bytes)"
+          }
+          Write-Host "Verified $exe ($($file.Length) bytes)"
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
