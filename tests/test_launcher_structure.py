@@ -74,6 +74,10 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("def _animate_label(self", self.source)
         self.assertIn("style=\"nav\"", self.source)
         self.assertIn("Toggle(option_row", self.source)
+        self.assertIn("class SelectBox(tk.Canvas):", self.source)
+        self.assertIn("new.place(x=0, y=0, relwidth=1, relheight=1)", self.source)
+        self.assertIn("card = Panel(shell, bg=BG, fill=GLASS, radius=28)", self.source)
+        self.assertIn('highlightthickness=0, bd=0', self.source)
 
 
 if __name__ == "__main__":
