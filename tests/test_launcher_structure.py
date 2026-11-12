@@ -1,5 +1,4 @@
 import ast
-import base64
 import pathlib
 import unittest
 
@@ -11,13 +10,15 @@ SOURCE = ROOT / "launcher.py"
 class LauncherStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
+        cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.tree = ast.parse(cls.source)
         cls.app = next(
             node for node in cls.tree.body
             if isinstance(node, ast.ClassDef) and node.name == "App"
         )
         cls.methods = {
-            node.name for node in cls.app.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            node.name for node in cls.app.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
 
     def test_all_navigation_pages_exist(self):
@@ -58,18 +59,62 @@ class LauncherStructureTests(unittest.TestCase):
         duplicates = sorted({name for name in names if names.count(name) > 1})
         self.assertEqual(duplicates, [])
 
-    def test_bundled_wallpaper_is_valid_jpeg(self):
-        wallpaper = ROOT / "assets" / "background.jpg.b64"
-        self.assertTrue(wallpaper.is_file(), "Bundled Minecraft wallpaper is missing")
-        raw = base64.b64decode(wallpaper.read_text(encoding="ascii").strip(), validate=True)
-        self.assertTrue(raw.startswith(bytes.fromhex("ffd8ff")), "Wallpaper payload is not a JPEG")
+    def test_monochrome_shell_has_no_wallpaper_dependency(self):
+        self.assertIn('self.geometry("1040x700")', self.source)
+        self.assertIn("self.stage = tk.Frame(self", self.source)
+        self.assertNotIn("_wallpaper_source", self.source)
+        self.assertNotIn("background.jpg", self.source)
+        self.assertIn("def go_back(self):", self.source)
+        self.assertIn("self.page_history = []", self.source)
 
-    def test_lainlauncher_brand_and_wallpaper_loader(self):
-        source = SOURCE.read_text(encoding="utf-8")
-        self.assertIn('self.title("LainLauncher · Minecraft")', source)
-        self.assertIn("self._wallpaper_source_b64", source)
-        self.assertIn("base64.b64decode", source)
-        self.assertNotIn('if not os.path.isfile(self._wallpaper_source):', source)
+    def test_custom_controls_and_text_motion_are_present(self):
+        self.assertIn("class Btn(tk.Canvas):", self.source)
+        self.assertIn("class Field(tk.Canvas):", self.source)
+        self.assertIn("class VersionList(tk.Canvas):", self.source)
+        self.assertIn("class Toggle(tk.Canvas):", self.source)
+        self.assertIn("class SelectBox(tk.Canvas):", self.source)
+        self.assertIn("class TextLabel(tk.Canvas):", self.source)
+        self.assertNotIn("tk.Label(", self.source)
+        self.assertNotIn("tk.Entry(", self.source)
+        self.assertNotIn("tk.Listbox(", self.source)
+        self.assertIn("self.entry = self", self.source)
+        self.assertIn("def _on_key(self, event):", self.source)
+        self.assertIn("def set_selection(self", self.source)
+        self.assertNotIn("ttk.Combobox", self.source)
+        self.assertNotIn("def _home_combo(", self.source)
+        self.assertIn("ImageFilter.GaussianBlur", self.source)
+        self.assertIn("def settle_home(", self.source)
+        self.assertIn("def _animate_label(self", self.source)
+        self.assertIn("new.place(x=0, y=0, relwidth=1, relheight=1)", self.source)
+        self.assertIn("card = Panel(shell, bg=BG, fill=GLASS, radius=28)", self.source)
+
+    def test_custom_text_renderer_has_safe_fallback(self):
+        text_class = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "TextLabel"
+        )
+        names = {
+            node.name for node in text_class.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertTrue({"_pil_font", "_render", "config", "_wrapped_lines"}.issubset(names))
+        self.assertIn("self._tk_font", self.source)
+        self.assertIn("self._render()", self.source)
+        self.assertIn("ImageTk.PhotoImage(image)", self.source)
+        self.assertIn("def reserve_text(self, text):", self.source)
+        self.assertIn("self.header_title.reserve_text(title_text)", self.source)
+        self.assertIn("self._reserved_width = max(self._reserved_width, requested_width)", self.source)
+        self.assertIn("radius = max(2, min(self.radius, width / 2 - 1,", self.source)
+
+    def test_build_workflow_uses_explicit_powershell_argument_list(self):
+        workflow = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("group: lainlauncher-windows-build-${{ github.ref }}", workflow)
+        self.assertIn("$pyInstallerArgs = @(", workflow)
+        self.assertNotIn("$args = @(", workflow)
+        self.assertIn("& python -m PyInstaller @pyInstallerArgs launcher.py", workflow)
+        self.assertIn("python -m pip check", workflow)
+        self.assertIn("python -m py_compile launcher.py", workflow)
 
 
 if __name__ == "__main__":

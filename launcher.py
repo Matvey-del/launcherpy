@@ -36,22 +36,21 @@ NAV = [("play", "Играть"), ("versions", "Версии"), ("servers", "Се
 
 LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
 
-# Monochrome palette: charcoal surfaces, soft greys and clean white accents.
-# LainLauncher ocean-glass palette.
-BG = "#102b42"
-SIDE = "#173a55"
-PANEL = "#1b405c"
-FIELD = "#12324b"
-LINE = "#618da8"
-SHADOW = "#081c2c"
-RED = "#83d7ec"
-RED_HI = "#c4f2ff"
-RED_DARK = "#285a77"
-TEXT = "#f3fbff"
-GREY = "#b7d0df"
-MUTED = "#85a8bd"
-GLASS = "#193d59"
-GLASS_EDGE = "#8bbdd5"
+# Monochrome glass palette: charcoal surfaces, layered graphite and soft white accents.
+BG = "#0b0d11"
+SIDE = "#12151a"
+PANEL = "#1d222a"
+FIELD = "#101319"
+LINE = "#3b414b"
+SHADOW = "#08090c"
+RED = "#e1e4e9"
+RED_HI = "#ffffff"
+RED_DARK = "#626a76"
+TEXT = "#f4f5f7"
+GREY = "#b0b5bd"
+MUTED = "#7f8792"
+GLASS = "#181c22"
+GLASS_EDGE = "#424954"
 FONT = "Segoe UI"
 
 # Profile artwork bundled with the launcher. GIF is supported by Tkinter on Windows 7.
@@ -495,11 +494,11 @@ def alive(w):
 
 
 class Panel(tk.Canvas):
-    """Скруглённая карточка с мягкой тенью. Содержимое кладётся в .inner."""
-    PAD = 12
-    SH = 2
+    """Layered rounded glass surface; child widgets live on the inset canvas."""
+    PAD = 22
+    SH = 9
 
-    def __init__(self, parent, bg=BG, fill=PANEL, radius=16):
+    def __init__(self, parent, bg=BG, fill=PANEL, radius=22):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0)
         self.fill = fill
         self.radius = radius
@@ -512,31 +511,337 @@ class Panel(tk.Canvas):
     def _layout(self):
         if not alive(self):
             return
-        w = self.winfo_width()
-        if w < 60:
+        width = self.winfo_width()
+        if width < 60:
             return
-        self.itemconfigure(self.win, width=w - 2 * self.PAD)
-        h = self.inner.winfo_reqheight() + 2 * self.PAD + self.SH
-        if h != self._h:
-            self._h = h
-            self.config(height=h)
-        self.delete("bg")
-        r = self.radius
-        rrect(self, 5, self.SH + 3, w - 5, h - 1, r, fill="#050505", outline="", tags="bg")
-        rrect(self, 2, self.SH, w - 2, h - 3, r, fill=SHADOW, outline="", tags="bg")
-        rrect(self, 0, 0, w - 1, h - self.SH - 1, r, fill=self.fill, outline="#66848a", width=1, tags="bg")
-        self.tag_lower("bg")
+        self.itemconfigure(self.win, width=max(1, width - 2 * self.PAD))
+        height = self.inner.winfo_reqheight() + 2 * self.PAD + self.SH
+        if height != self._h:
+            self._h = height
+            self.config(height=height)
+
+        self.delete("glass")
+        try:
+            # Supersampled alpha artwork: a real rounded gradient surface, not a Tk frame.
+            from PIL import Image, ImageDraw, ImageFilter, ImageTk
+            scale = 2
+            art_w = max(1, width * scale)
+            art_h = max(1, (height - self.SH) * scale)
+            radius = max(2, min(self.radius, width / 2 - 1,
+                                (height - self.SH) / 2 - 1)) * scale
+            surface = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+
+            shadow = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow)
+            shadow_draw.rounded_rectangle(
+                (12, 13, art_w - 12, art_h - 2),
+                radius=radius, fill=(0, 0, 0, 155))
+            shadow = shadow.filter(ImageFilter.GaussianBlur(15 * scale))
+            surface.alpha_composite(shadow)
+
+            base = tuple(int(self.fill[i:i + 2], 16) for i in (1, 3, 5))
+            top = tuple(min(255, int(channel * 1.24 + 5)) for channel in base)
+            bottom = tuple(max(0, int(channel * 0.88)) for channel in base)
+            gradient = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            gradient_draw = ImageDraw.Draw(gradient)
+            for y in range(art_h):
+                t = y / max(1, art_h - 1)
+                color = tuple(int(top[c] * (1 - t) + bottom[c] * t) for c in range(3))
+                gradient_draw.line((0, y, art_w, y), fill=(*color, 230), width=1)
+
+            mask = Image.new("L", (art_w, art_h), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.rounded_rectangle(
+                (1, 1, art_w - 2, art_h - 2),
+                radius=radius, fill=255)
+            gradient.putalpha(Image.eval(mask, lambda value: int(value * 0.88)))
+            surface.alpha_composite(gradient)
+
+            rim = Image.new("RGBA", (art_w, art_h), (0, 0, 0, 0))
+            rim_draw = ImageDraw.Draw(rim)
+            rim_draw.rounded_rectangle(
+                (1, 1, art_w - 2, art_h - 2), radius=radius,
+                outline=(180, 188, 201, 76), width=2)
+            rim_draw.line((radius + 16, 3, art_w - radius - 16, 3),
+                          fill=(230, 234, 242, 48), width=2)
+            surface.alpha_composite(rim)
+
+            resampling = getattr(Image, "Resampling", Image)
+            surface = surface.resize((width, max(1, height - self.SH)), resampling.LANCZOS)
+            self._glass_photo = ImageTk.PhotoImage(surface)
+            self.create_image(0, 0, image=self._glass_photo,
+                              anchor="nw", tags="glass")
+        except Exception:
+            # Fallback for systems without Pillow; keep the same rounded silhouette.
+            r = self.radius
+            rrect(self, 5, self.SH + 4, width - 5, height - 1, r,
+                  fill="#07080b", outline="", tags="glass")
+            rrect(self, 2, self.SH + 1, width - 2, height - 4, r,
+                  fill="#11151b", outline="", tags="glass")
+            rrect(self, 0, 0, width - 1, height - self.SH - 2, r,
+                  fill=self.fill, outline="#454c57", width=1, tags="glass")
+        self.tag_lower("glass")
+
+class TextLabel(tk.Canvas):
+    """Pillow-rendered label with consistent typography and high-DPI antialiasing."""
+    _font_cache = {}
+
+    def __init__(self, parent, text="", bg=BG, fg=TEXT, font=(FONT, 9),
+                 wraplength=0, justify="left", width=None, anchor="center"):
+        self._label_text = str(text)
+        self._label_bg = bg
+        self._label_fg = fg
+        self._label_font_spec = font
+        self._wraplength = int(wraplength or 0)
+        self._justify = justify
+        self._label_width_chars = width
+        self._anchor = anchor
+        self._scale = 2
+        self._photo = None
+        self._render_job = None
+        self._caret_index = None
+        self._caret_visible = False
+        self._selection_range = None
+        self._tk_font = tkfont.Font(root=parent, font=font)
+        requested_width, requested_height = self._requested_size()
+        super().__init__(parent, width=requested_width, height=requested_height,
+                         bg=bg, highlightthickness=0, bd=0)
+        self.bind("<Configure>", self._schedule_render)
+        self._render()
+
+    def _font_asset(self):
+        actual = self._tk_font.actual()
+        family = str(actual.get("family", FONT)).lower()
+        bold = str(actual.get("weight", "normal")).lower() == "bold"
+        candidates = []
+        if "segoe" in family:
+            candidates.append("segoeuib.ttf" if bold else "segoeui.ttf")
+        elif "arial" in family:
+            candidates.append("arialbd.ttf" if bold else "arial.ttf")
+        elif "consolas" in family:
+            candidates.append("consolab.ttf" if bold else "consola.ttf")
+        candidates.extend(["segoeuib.ttf" if bold else "segoeui.ttf", "arial.ttf"])
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        for filename in candidates:
+            path = os.path.join(windir, "Fonts", filename)
+            if os.path.isfile(path):
+                return path
+        return None
+
+    def _pil_font(self):
+        actual = self._tk_font.actual()
+        size = max(6, abs(int(actual.get("size", 9)))) * self._scale
+        bold = str(actual.get("weight", "normal")).lower() == "bold"
+        path = self._font_asset()
+        key = (path or "default", size, bold)
+        if key not in self._font_cache:
+            from PIL import ImageFont
+            try:
+                self._font_cache[key] = ImageFont.truetype(path or "segoeui.ttf", size)
+            except Exception:
+                try:
+                    self._font_cache[key] = ImageFont.truetype("arial.ttf", size)
+                except Exception:
+                    self._font_cache[key] = ImageFont.load_default(size=size)
+        return self._font_cache[key]
+
+    def _wrapped_lines(self, font, max_width):
+        text = self._label_text or " "
+        paragraphs = text.splitlines() or [""]
+        if max_width <= 0:
+            return paragraphs
+        result = []
+        for paragraph in paragraphs:
+            if not paragraph:
+                result.append("")
+                continue
+            words = paragraph.split()
+            line = ""
+            for word in words:
+                candidate = word if not line else line + " " + word
+                if line and font.getlength(candidate) > max_width:
+                    result.append(line)
+                    line = word
+                else:
+                    line = candidate
+            result.append(line or "")
+        return result
+
+    def reserve_text(self, text):
+        """Reserve final text width before a character-by-character reveal."""
+        previous = self._label_text
+        self._label_text = str(text)
+        width, height = self._requested_size()
+        self._label_text = previous
+        if not self._wraplength and not self._label_width_chars:
+            self._reserved_width = max(getattr(self, "_reserved_width", 0), width)
+            tk.Canvas.configure(self, width=self._reserved_width)
+        return width, height
+
+    def _requested_size(self):
+        size = self._tk_font.actual()
+        px = max(6, abs(int(size.get("size", 9))))
+        average = max(5, px * 0.56)
+        if self._wraplength:
+            width = self._wraplength + 8
+        elif self._label_width_chars:
+            width = max(16, int(self._label_width_chars * average + 8))
+        else:
+            width = max(20, int(self._tk_font.measure(self._label_text or " ") + 8))
+        height = max(18, int(px * 1.7 + 6))
+        return width, height
+
+    def set_caret(self, index=None, visible=False):
+        self._caret_index = index
+        self._caret_visible = bool(visible and index is not None)
+        self._schedule_render()
+
+    def set_selection(self, start=None, end=None):
+        self._selection_range = (start, end) if start is not None and end is not None else None
+        self._schedule_render()
+
+    def _schedule_render(self, _event=None):
+        if self._render_job:
+            try:
+                self.after_cancel(self._render_job)
+            except tk.TclError:
+                pass
+        self._render_job = self.after_idle(self._render)
+
+    def _render(self):
+        if not alive(self):
+            return
+        self._render_job = None
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            scale = self._scale
+            requested_width, requested_height = self._requested_size()
+            width = max(20, self.winfo_width(), requested_width,
+                        getattr(self, "_reserved_width", 0))
+            height = max(18, self.winfo_height(), requested_height)
+            if width != self.winfo_reqwidth():
+                tk.Canvas.configure(self, width=width)
+            font = self._pil_font()
+            wrap = self._wraplength * scale
+            if wrap:
+                available = wrap if width < 40 else min(wrap, max(20, width * scale - 8 * scale))
+                wrap = available
+            lines = self._wrapped_lines(font, wrap)
+            bbox = font.getbbox("Ag", anchor="lt")
+            line_height = max(1, bbox[3] - bbox[1] + 4 * scale)
+            widths = [font.getlength(line) for line in lines]
+            block_width = max(widths or [0])
+            block_height = max(line_height, line_height * len(lines))
+            desired_height = max(18, int((block_height + 6 * scale) / scale + 0.5))
+            if desired_height != self.winfo_reqheight():
+                tk.Canvas.configure(self, height=desired_height)
+                height = desired_height
+            image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+
+            anchor = self._anchor.lower()
+            if anchor in ("e", "ne", "se"):
+                origin_x = max(2 * scale, width * scale - block_width - 3 * scale)
+            elif anchor in ("center", "n", "s"):
+                origin_x = max(2 * scale, (width * scale - block_width) / 2)
+            else:
+                origin_x = 3 * scale
+
+            if anchor in ("n", "ne", "nw"):
+                origin_y = 2 * scale
+            elif anchor in ("s", "se", "sw"):
+                origin_y = max(2 * scale, height * scale - block_height - 2 * scale)
+            else:
+                origin_y = max(2 * scale, (height * scale - block_height) / 2)
+
+            for index, line in enumerate(lines):
+                line_width = widths[index]
+                if self._justify == "center":
+                    x = origin_x + (block_width - line_width) / 2
+                elif self._justify == "right":
+                    x = origin_x + block_width - line_width
+                else:
+                    x = origin_x
+                y = origin_y + index * line_height
+                if index == 0 and self._selection_range is not None:
+                    select_start, select_end = self._selection_range
+                    left = font.getlength(line[:max(0, min(len(line), select_start))])
+                    right = font.getlength(line[:max(0, min(len(line), select_end))])
+                    if right > left:
+                        draw.rounded_rectangle(
+                            (x + left, y + 1 * scale, x + right, y + line_height - 1 * scale),
+                            radius=3 * scale, fill=(112, 121, 134, 150))
+                draw.text((x + 0.5 * scale, y + 1 * scale), line,
+                          font=font, fill=(0, 0, 0, 56), anchor="lt")
+                draw.text((x, y), line, font=font, fill=self._label_fg, anchor="lt")
+                if index == 0 and self._caret_visible and self._caret_index is not None:
+                    caret_prefix = line[:max(0, min(len(line), self._caret_index))]
+                    caret_x = x + font.getlength(caret_prefix)
+                    draw.line((caret_x, y + 2 * scale, caret_x, y + line_height - 2 * scale),
+                              fill=self._label_fg, width=max(2, scale))
+
+            resampling = getattr(Image, "Resampling", Image)
+            image = image.resize((width, height), resampling.LANCZOS)
+            self._photo = ImageTk.PhotoImage(image)
+            self.delete("label-text")
+            self.create_image(0, 0, image=self._photo, anchor="nw",
+                              tags="label-text")
+        except Exception:
+            # Keep the UI readable on a system whose Pillow font backend is unavailable.
+            self.delete("label-text")
+            self.create_text(4, max(9, self.winfo_height() / 2),
+                             text=self._label_text, fill=self._label_fg,
+                             font=self._tk_font, anchor="w", width=self._wraplength,
+                             justify=self._justify, tags="label-text")
+
+    def config(self, cnf=None, **kwargs):
+        options = dict(kwargs)
+        if isinstance(cnf, dict):
+            options.update(cnf)
+        if "text" in options:
+            self._label_text = str(options.pop("text"))
+        if "fg" in options or "foreground" in options:
+            self._label_fg = options.pop("fg", options.pop("foreground", self._label_fg))
+        if "bg" in options or "background" in options:
+            self._label_bg = options.pop("bg", options.pop("background", self._label_bg))
+            options["bg"] = self._label_bg
+        if "font" in options:
+            self._label_font_spec = options.pop("font")
+            self._tk_font = tkfont.Font(root=self, font=self._label_font_spec)
+        if "wraplength" in options:
+            self._wraplength = int(options.pop("wraplength") or 0)
+        if "justify" in options:
+            self._justify = options.pop("justify")
+        if "anchor" in options:
+            self._anchor = options.pop("anchor")
+        if "width" in options:
+            self._label_width_chars = options.pop("width")
+        if options:
+            tk.Canvas.configure(self, **options)
+        requested_width, requested_height = self._requested_size()
+        if not hasattr(self, "_reserved_width"):
+            self._reserved_width = requested_width
+        if self._wraplength or self._label_width_chars:
+            tk.Canvas.configure(self, width=requested_width)
+        else:
+            self._reserved_width = max(self._reserved_width, requested_width)
+            tk.Canvas.configure(self, width=self._reserved_width)
+        tk.Canvas.configure(self, height=requested_height)
+        self._render()
+        return None
+
+    configure = config
 
 
 class Btn(tk.Canvas):
     """Скруглённая кнопка с плавной сменой цвета при наведении."""
     STYLES = {
-        "primary": (RED, RED_HI, "#08243a"),
-        "soft": ("#285a77", "#347594", "#f3fbff"),
-        "ghost": ("#204c68", "#2d6382", "#edf8ff"),
-        "danger": ("#643d4a", "#805061", "#ffffff"),
-        "nav": ("#193d59", "#285a77", "#b7d0df"),
-        "nav_on": ("#347594", "#438cab", "#ffffff"),
+        "primary": (RED, RED_HI, "#111318"),
+        "soft": ("#343a44", "#505761", "#f4f5f7"),
+        "ghost": ("#262b33", "#454b56", "#f3f4f6"),
+        "danger": ("#30343b", "#454b56", "#ffffff"),
+        "nav": ("#181c22", "#343a44", "#c2c7cf"),
+        "nav_on": ("#505761", "#626a76", "#ffffff"),
     }
 
     def __init__(self, parent, text, cmd, style="primary", bg=PANEL, size=10, h=34,
@@ -578,7 +883,7 @@ class Btn(tk.Canvas):
         if 0 <= e.x <= self.w and 0 <= e.y <= self.h and self.cmd:
             self.cmd()
 
-    def tween(self, target, steps=7):
+    def tween(self, target, steps=11):
         if self._job:
             try:
                 self.after_cancel(self._job)
@@ -600,11 +905,15 @@ class Btn(tk.Canvas):
             return
         self.delete("all")
         w, h = self.w, self.h
+        radius = min(15, h / 2)
+        rrect(self, 1, 3, w - 2, h - 1, radius, fill="#090b0f", outline="")
         if self.pulse:
-            rrect(self, 0, 0, w - 1, h - 1, min(12, h / 2), fill=self.glow, outline="")
-            rrect(self, 2, 2, w - 3, h - 3, min(10, (h - 4) / 2), fill=self.cur, outline="")
+            rrect(self, 0, 0, w - 1, h - 4, radius, fill=self.glow, outline="")
+            rrect(self, 2, 2, w - 3, h - 5, max(5, radius - 2),
+                  fill=self.cur, outline="#616975", width=1)
         else:
-            rrect(self, 0, 0, w - 1, h - 1, min(12, h / 2), fill=self.cur, outline="")
+            rrect(self, 0, 0, w - 1, h - 4, radius,
+                  fill=self.cur, outline="#424954", width=1)
         if self.align == "center":
             self.create_text(w / 2, h / 2, text=self.text, fill=self.fg, font=self.font)
         else:
@@ -620,40 +929,513 @@ class Btn(tk.Canvas):
 
 
 class Field(tk.Canvas):
-    """Поле ввода с рамкой, которая становится красной при фокусе."""
+    """Fully custom rounded input: Canvas surface, high-DPI text and caret."""
     def __init__(self, parent, show=None, bg=PANEL, h=38):
-        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0)
+        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0,
+                         cursor="xterm", takefocus=True)
         self.h = h
         self.border = LINE
-        self.entry = tk.Entry(self, bg=FIELD, fg=TEXT, insertbackground=RED, relief="flat",
-                              font=(FONT, 11), show=show or "", bd=0, highlightthickness=0)
-        self.win = self.create_window(12, h // 2, anchor="w", window=self.entry)
-        self.entry.bind("<FocusIn>", lambda e: self._set_border(RED))
-        self.entry.bind("<FocusOut>", lambda e: self._set_border(LINE))
-        self.bind("<Configure>", lambda e: self._paint())
-        self.bind("<Button-1>", lambda e: self.entry.focus_set())
+        self.show = show or ""
+        self._value = ""
+        self._text_fg = TEXT
+        self._insert_color = RED_HI
+        self._cursor = 0
+        self._selection = None
+        self._focused = False
+        self._caret_visible = False
+        self._border_job = None
+        self._caret_job = None
+        self._measure_font = tkfont.Font(root=self, font=(FONT, 11))
+        self._text_widget = TextLabel(self, text="", bg=FIELD, fg=TEXT,
+                                      font=(FONT, 11), anchor="w")
+        self.win = self.create_window(13, h // 2, anchor="w",
+                                      window=self._text_widget, height=h - 8)
+        self.entry = self
 
-    def _set_border(self, color):
-        self.border = color
+        self.bind("<Configure>", lambda e: self._paint())
+        self.bind("<Button-1>", self._focus_input)
+        self._text_widget.bind("<Button-1>", self._focus_input)
+        self.bind("<FocusIn>", self._on_focus_in, add="+")
+        self.bind("<FocusOut>", self._on_focus_out, add="+")
+        self.bind("<KeyPress>", self._on_key)
+        self._sync_text()
+        self._paint()
+
+    def _focus_input(self, event=None):
+        self.focus_set()
+        if event is not None and event.widget is self._text_widget:
+            local_x = event.x
+        else:
+            local_x = max(0, event.x - 13) if event is not None else self.winfo_width()
+        probe = ""
+        self._cursor = len(self._value)
+        for index, char in enumerate(self._display_value()):
+            width = self._tk_measure(probe + char)
+            if local_x < width:
+                self._cursor = index
+                break
+            probe += char
+        self._selection = None
+        self._sync_text()
+        return "break"
+
+    def _tk_measure(self, text):
+        return self._measure_font.measure(text)
+
+    def _erase_selection(self):
+        if self._selection is None:
+            return False
+        start, end = sorted(self._selection)
+        self._value = self._value[:start] + self._value[end:]
+        self._cursor = start
+        self._selection = None
+        return True
+
+    def _on_focus_in(self, _event=None):
+        self._focused = True
+        self._set_border(RED_HI)
+        self._caret_visible = True
+        self._sync_text()
+        self._blink_caret()
+
+    def _on_focus_out(self, _event=None):
+        self._focused = False
+        self._caret_visible = False
+        if self._caret_job:
+            try:
+                self.after_cancel(self._caret_job)
+            except tk.TclError:
+                pass
+            self._caret_job = None
+        self._set_border(LINE)
+        self._sync_text()
+
+    def _blink_caret(self):
+        if not alive(self) or not self._focused:
+            return
+        self._caret_visible = not self._caret_visible
+        self._sync_text()
+        self._caret_job = self.after(520, self._blink_caret)
+
+    def _display_value(self):
+        if self.show:
+            return self.show * len(self._value)
+        return self._value
+
+    def _sync_text(self):
+        if not alive(self._text_widget):
+            return
+        self._text_widget.config(text=self._display_value(), fg=self._text_fg)
+        if self._selection is None:
+            self._text_widget.set_selection()
+        else:
+            self._text_widget.set_selection(*self._selection)
+        self._text_widget.set_caret(self._cursor, self._caret_visible and self._focused)
+
+    def _on_key(self, event):
+        key = event.keysym
+        ctrl = bool(event.state & 0x4)
+        if ctrl and key.lower() == "a":
+            self._selection = (0, len(self._value))
+            self._cursor = len(self._value)
+            self._caret_visible = True
+            self._sync_text()
+            return "break"
+        if ctrl and key.lower() == "v":
+            try:
+                pasted = self.clipboard_get()
+            except tk.TclError:
+                pasted = ""
+            if pasted:
+                self.insert(self._cursor, pasted)
+            return "break"
+        if ctrl and key.lower() == "c":
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(self._value)
+            except tk.TclError:
+                pass
+            return "break"
+        shift = bool(event.state & 0x1)
+        if key == "BackSpace":
+            if not self._erase_selection() and self._cursor > 0:
+                self._value = self._value[:self._cursor - 1] + self._value[self._cursor:]
+                self._cursor -= 1
+            self._changed()
+            return "break"
+        if key == "Delete":
+            if not self._erase_selection() and self._cursor < len(self._value):
+                self._value = self._value[:self._cursor] + self._value[self._cursor + 1:]
+            self._changed()
+            return "break"
+        if key in ("Left", "Right"):
+            old_cursor = self._cursor
+            if key == "Left":
+                self._cursor = max(0, self._cursor - 1)
+            else:
+                self._cursor = min(len(self._value), self._cursor + 1)
+            if shift:
+                begin = self._selection[0] if self._selection else old_cursor
+                self._selection = (begin, self._cursor)
+                if self._selection[0] == self._selection[1]:
+                    self._selection = None
+            else:
+                self._selection = None
+            self._changed()
+            return "break"
+        if key in ("Home", "End"):
+            old_cursor = self._cursor
+            self._cursor = 0 if key == "Home" else len(self._value)
+            if shift:
+                begin = self._selection[0] if self._selection else old_cursor
+                self._selection = (begin, self._cursor)
+                if self._selection[0] == self._selection[1]:
+                    self._selection = None
+            else:
+                self._selection = None
+            self._changed()
+            return "break"
+        if key in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+                   "Caps_Lock", "Tab", "Escape"):
+            return None
+        if event.char and event.char.isprintable() and not ctrl:
+            self.insert(self._cursor, event.char)
+            return "break"
+        return None
+
+    def _changed(self):
+        self._caret_visible = True
+        self._sync_text()
+
+    def insert(self, index, value):
+        try:
+            pos = len(self._value) if index == "end" else int(index)
+        except (TypeError, ValueError):
+            pos = self._cursor
+        if self._selection is not None:
+            self._erase_selection()
+            pos = self._cursor
+        pos = max(0, min(len(self._value), pos))
+        text = str(value)
+        self._value = self._value[:pos] + text + self._value[pos:]
+        self._cursor = pos + len(text)
+        self._changed()
+
+    def delete(self, first, last=None):
+        try:
+            begin = len(self._value) if first == "end" else int(first)
+        except (TypeError, ValueError):
+            begin = self._cursor
+        begin = max(0, min(len(self._value), begin))
+        if last is None:
+            finish = min(len(self._value), begin + 1)
+        elif last == "end":
+            finish = len(self._value)
+        else:
+            try:
+                finish = int(last)
+            except (TypeError, ValueError):
+                finish = begin
+        finish = max(begin, min(len(self._value), finish))
+        self._value = self._value[:begin] + self._value[finish:]
+        self._cursor = min(begin, len(self._value))
+        self._selection = None
+        self._changed()
+
+    def get(self):
+        return self._value.strip()
+
+    def raw(self):
+        return self._value
+
+    def focus_set(self):
+        tk.Canvas.focus_set(self)
+
+    def config(self, cnf=None, **kwargs):
+        options = dict(kwargs)
+        if isinstance(cnf, dict):
+            options.update(cnf)
+        if "fg" in options:
+            self._text_fg = options.pop("fg")
+        if "foreground" in options:
+            self._text_fg = options.pop("foreground")
+        if "insertbackground" in options:
+            self._insert_color = options.pop("insertbackground")
+        if "bg" in options:
+            tk.Canvas.configure(self, bg=options.pop("bg"))
+        if options:
+            tk.Canvas.configure(self, **options)
+        self._sync_text()
+    configure = config
+
+    def _set_border(self, color, steps=10):
+        if self._border_job:
+            try:
+                self.after_cancel(self._border_job)
+            except tk.TclError:
+                pass
+        start = self.border
+
+        def animate(index=1):
+            if not alive(self):
+                return
+            self.border = lerp(start, color, index / steps)
+            self._paint()
+            self._border_job = self.after(16, animate, index + 1) if index < steps else None
+        animate()
+
+    def _paint(self):
+        if not alive(self):
+            return
+        width = self.winfo_width()
+        if width < 40:
+            return
+        self.delete("field-bg")
+        self.itemconfigure(self.win, width=max(1, width - 26))
+        radius = max(8, min(13, self.h // 2))
+        rrect(self, 0, 0, width - 1, self.h - 1, radius,
+              fill=self.border, outline="", tags="field-bg")
+        rrect(self, 1, 1, width - 2, self.h - 2, radius - 1,
+              fill=FIELD, outline="", tags="field-bg")
+        self.tag_lower("field-bg")
+
+
+
+
+class SelectBox(tk.Canvas):
+    """Rounded custom selector with an animated face and a lightweight popup list."""
+    def __init__(self, parent, variable, values, command=None, bg=GLASS, h=44):
+        super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0,
+                         cursor="hand2")
+        self.variable = variable
+        self.values = list(values)
+        self.command = command
+        self.surface = FIELD
+        self.hover = False
+        self.popup = None
+        self.bind("<Configure>", lambda e: self._paint())
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", self._open)
+        self._paint()
+
+    def _on_enter(self, _event=None):
+        self.hover = True
+        self._paint()
+
+    def _on_leave(self, _event=None):
+        self.hover = False
         self._paint()
 
     def _paint(self):
         if not alive(self):
             return
-        w = self.winfo_width()
-        if w < 40:
+        self.delete("select")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        if width < 40:
             return
-        self.delete("bg")
-        self.itemconfigure(self.win, width=w - 24)
-        rrect(self, 0, 0, w - 1, self.h - 1, 10, fill=self.border, outline="", tags="bg")
-        rrect(self, 1, 1, w - 2, self.h - 2, 9, fill=FIELD, outline="", tags="bg")
-        self.tag_lower("bg")
+        edge = "#777777" if self.hover else LINE
+        rrect(self, 1, 1, width - 2, height - 2, 12,
+              fill=edge, outline="", tags="select")
+        rrect(self, 2, 2, width - 3, height - 3, 11,
+              fill=self.surface, outline="", tags="select")
+        self.create_text(16, height / 2, text=self.variable.get(),
+                         anchor="w", fill=TEXT, font=(FONT, 10),
+                         tags="select")
+        self.create_text(width - 19, height / 2 - 1, text="⌄",
+                         fill=GREY, font=(FONT, 15, "bold"),
+                         tags="select")
+        self.tag_raise("select")
 
-    def get(self):
-        return self.entry.get().strip()
+    def _open(self, _event=None):
+        if self.popup is not None and alive(self.popup):
+            self.popup.destroy()
+            self.popup = None
+            return
+        if not self.values:
+            return
+        popup = tk.Toplevel(self)
+        self.popup = popup
+        popup.overrideredirect(True)
+        popup.configure(bg=PANEL)
+        try:
+            popup.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        width = max(220, self.winfo_width())
+        height = min(260, max(42, len(self.values) * 36 + 12))
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height() + 6
+        popup.geometry(f"{width}x{height}+{x}+{y}")
 
-    def raw(self):
-        return self.entry.get()
+        frame = Panel(popup, bg=PANEL, fill=GLASS, radius=18)
+        frame.pack(fill="both", expand=True, padx=3, pady=3)
+
+        def choose(value):
+            self.variable.set(value)
+            self._paint()
+            if self.command:
+                self.command()
+            if alive(popup):
+                popup.destroy()
+            self.popup = None
+
+        for item in self.values:
+            active = item == self.variable.get()
+            option = Btn(frame.inner, item,
+                         lambda value=item: choose(value),
+                         style="soft" if active else "ghost",
+                         bg=GLASS, h=34, size=9, stretch=True, align="left")
+            option.pack(fill="x", pady=2)
+
+        try:
+            popup.attributes("-alpha", 0.0)
+        except tk.TclError:
+            pass
+
+        def fade(step=0, steps=9):
+            if not alive(popup):
+                return
+            try:
+                popup.attributes("-alpha", min(1.0, (step + 1) / steps))
+            except tk.TclError:
+                return
+            if step + 1 < steps:
+                popup.after(14, fade, step + 1)
+        fade()
+        popup.bind("<Escape>", lambda _e: popup.destroy())
+        popup.focus_force()
+
+
+class VersionList(tk.Canvas):
+    """Rounded, high-DPI version list with custom selection and wheel scrolling."""
+    def __init__(self, parent, bg=FIELD, font=(FONT, 10), rows=8):
+        super().__init__(parent, bg=bg, height=rows * 38 + 8,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self.items = []
+        self.selected = None
+        self.top_index = 0
+        self.visible_rows = rows
+        self.row_height = 38
+        self._photo = None
+        self._font_spec = font
+        self.bind("<Configure>", lambda _e: self._paint())
+        self.bind("<Button-1>", self._select_at)
+        self.bind("<MouseWheel>", self._wheel)
+        self.bind("<Button-4>", lambda _e: self._scroll(-1))
+        self.bind("<Button-5>", lambda _e: self._scroll(1))
+
+    def insert(self, index, value):
+        pos = len(self.items) if index == "end" else max(0, int(index))
+        self.items.insert(pos, str(value))
+        if self.selected is not None and pos <= self.selected:
+            self.selected += 1
+        self._paint()
+
+    def delete(self, first, last=None):
+        begin = 0 if first == "end" else max(0, int(first))
+        finish = len(self.items) - 1 if last in (None, "end") else max(begin, int(last))
+        if begin >= len(self.items):
+            return
+        finish = min(finish, len(self.items) - 1)
+        del self.items[begin:finish + 1]
+        if self.selected is not None:
+            if begin <= self.selected <= finish:
+                self.selected = None
+            elif self.selected > finish:
+                self.selected -= finish - begin + 1
+        self.top_index = min(self.top_index, max(0, len(self.items) - self.visible_rows))
+        self._paint()
+
+    def selection_set(self, index):
+        try:
+            idx = int(index)
+        except (TypeError, ValueError):
+            return
+        if 0 <= idx < len(self.items):
+            self.selected = idx
+            self._paint()
+
+    def curselection(self):
+        return () if self.selected is None else (self.selected,)
+
+    def see(self, index):
+        idx = max(0, min(len(self.items) - 1, int(index)))
+        if idx < self.top_index:
+            self.top_index = idx
+        elif idx >= self.top_index + self.visible_rows:
+            self.top_index = idx - self.visible_rows + 1
+        self._paint()
+
+    def _scroll(self, delta):
+        maximum = max(0, len(self.items) - self.visible_rows)
+        self.top_index = max(0, min(maximum, self.top_index + delta))
+        self._paint()
+
+    def _wheel(self, event):
+        self._scroll(-1 if event.delta > 0 else 1)
+        return "break"
+
+    def _select_at(self, event):
+        index = self.top_index + max(0, int(event.y // self.row_height))
+        if index < len(self.items):
+            self.selected = index
+            self._paint()
+        return "break"
+
+    def _paint(self):
+        if not alive(self):
+            return
+        width = max(40, self.winfo_width())
+        height = max(40, self.winfo_height())
+        try:
+            from PIL import Image, ImageDraw, ImageFont, ImageTk
+            scale = 2
+            image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            font_path = os.path.join(os.environ.get("WINDIR", r"C:\Windows"),
+                                     "Fonts", "segoeui.ttf")
+            try:
+                font = ImageFont.truetype(font_path, 10 * scale)
+            except Exception:
+                font = ImageFont.load_default(size=10 * scale)
+            row_h = self.row_height * scale
+            for row in range(self.visible_rows):
+                idx = self.top_index + row
+                if idx >= len(self.items):
+                    break
+                top = row * row_h + 2 * scale
+                bottom = min(height * scale - 2 * scale, top + row_h - 4 * scale)
+                selected = idx == self.selected
+                fill = (57, 63, 73, 245) if selected else (24, 28, 35, 220)
+                outline = (130, 139, 152, 160) if selected else (66, 74, 86, 130)
+                draw.rounded_rectangle(
+                    (2 * scale, top, width * scale - 2 * scale, bottom),
+                    radius=9 * scale, fill=fill, outline=outline, width=1 * scale)
+                label = self.items[idx]
+                bbox = font.getbbox(label, anchor="lt")
+                text_y = top + max(2 * scale, (bottom - top - (bbox[3] - bbox[1])) / 2)
+                draw.text((15 * scale, text_y), label, font=font,
+                          fill=(246, 247, 249, 255), anchor="lt")
+            resampling = getattr(Image, "Resampling", Image)
+            image = image.resize((width, height), resampling.LANCZOS)
+            self._photo = ImageTk.PhotoImage(image)
+            self.delete("version-art")
+            self.create_image(0, 0, image=self._photo, anchor="nw",
+                              tags="version-art")
+        except Exception:
+            self.delete("version-art")
+            for row in range(self.visible_rows):
+                idx = self.top_index + row
+                if idx >= len(self.items):
+                    break
+                y = row * self.row_height + 3
+                fill = "#343a44" if idx == self.selected else "#181c22"
+                rrect(self, 2, y, width - 2, y + 33, 9, fill=fill, outline="")
+                self.create_text(16, y + 16, text=self.items[idx],
+                                 fill=TEXT, anchor="w", font=self._font_spec,
+                                 tags="version-art")
 
 
 class Toggle(tk.Canvas):
@@ -672,7 +1454,7 @@ class Toggle(tk.Canvas):
         if self.cmd:
             self.cmd()
 
-    def _animate(self, target, steps=6):
+    def _animate(self, target, steps=10):
         start = self.pos
 
         def step(k=1):
@@ -688,7 +1470,7 @@ class Toggle(tk.Canvas):
         if not alive(self):
             return
         self.delete("all")
-        rrect(self, 0, 0, 43, 23, 11, fill=lerp("#2a2a2a", RED, self.pos), outline="")
+        rrect(self, 0, 0, 43, 23, 11, fill=lerp("#30343b", RED, self.pos), outline="")
         x = 3 + self.pos * 20
         self.create_oval(x, 3, x + 18, 21, fill=TEXT, outline="")
 
@@ -783,15 +1565,9 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("LainLauncher · Minecraft")
-        self.geometry("760x520")
-        self.minsize(560, 400)
+        self.geometry("1040x700")
+        self.minsize(820, 580)
         self.configure(bg=BG)
-        self._wallpaper_photo = None
-        self._wallpaper_label = None
-        self._wallpaper_source = os.path.join(ASSET_DIR, "background.jpg")
-        self._wallpaper_source_b64 = self._wallpaper_source + ".b64"
-        self.bind("<Configure>", self._resize_wallpaper)
-
         self.settings = load_json(CONFIG_FILE, {})
         self.settings.setdefault("root", DEFAULT_ROOT)
         self.settings.setdefault("version", DEFAULT_VERSION)
@@ -827,55 +1603,82 @@ class App(tk.Tk):
         self.show_page("play", animate=False)
 
     # ---------- оболочка ----------
-    def _resize_wallpaper(self, event=None):
-        # Wallpaper is a real bundled image, scaled to the current window size.
-        if event is not None and event.widget is not self:
-            return
-        try:
-            from PIL import Image, ImageTk
-            w, h = max(1, self.winfo_width()), max(1, self.winfo_height())
-            if os.path.isfile(self._wallpaper_source):
-                image = Image.open(self._wallpaper_source).convert("RGB")
-            elif os.path.isfile(self._wallpaper_source_b64):
-                with open(self._wallpaper_source_b64, "r", encoding="ascii") as wallpaper_file:
-                    raw = base64.b64decode(wallpaper_file.read().strip())
-                image = Image.open(io.BytesIO(raw)).convert("RGB")
-            else:
-                return
-            ratio = max(w / image.width, h / image.height)
-            resampling = getattr(Image, "Resampling", Image)
-            image = image.resize((int(image.width * ratio), int(image.height * ratio)), resampling.LANCZOS)
-            left = max(0, (image.width - w) // 2)
-            top = max(0, (image.height - h) // 2)
-            image = image.crop((left, top, left + w, top + h))
-            self._wallpaper_photo = ImageTk.PhotoImage(image)
-            if self._wallpaper_label is None or not alive(self._wallpaper_label):
-                self._wallpaper_label = tk.Label(self, image=self._wallpaper_photo, bd=0)
-                self._wallpaper_label.place(x=0, y=0, relwidth=1, relheight=1)
-                self._wallpaper_label.lower()
-            else:
-                self._wallpaper_label.configure(image=self._wallpaper_photo)
-                self._wallpaper_label.lower()
-        except Exception:
-            # The launcher remains usable if Pillow is not installed.
-            pass
-
     def build_shell(self):
-        """Minimal launcher shell: a single compact panel centered on a dark canvas."""
+        """Build the permanent monochrome launcher frame and navigation."""
         self.configure(bg=BG)
-        self.nav = {}
-        self.header_title = tk.Label(self, text="LainLauncher", bg=BG, fg=TEXT,
-                                     font=(FONT, 1))
-        self.header_meta = tk.Label(self, text="", bg=BG, fg=GREY, font=(FONT, 1))
-        self.top_status = tk.Label(self, text="● ГОТОВ", bg=BG, fg=GREY,
+        self.grid_columnconfigure(0, weight=0, minsize=184)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        self.page_history = []
+
+        topbar = tk.Frame(self, bg=BG)
+        topbar.grid(row=0, column=0, columnspan=2, sticky="ew",
+                    padx=20, pady=(16, 12))
+        brand = TextLabel(topbar, text="LAIN  /  LAUNCHER", bg=BG, fg=GREY,
+                         font=(FONT, 9, "bold"))
+        brand.pack(side="left", padx=(0, 18))
+
+        self.title_wrap = tk.Frame(topbar, bg=BG)
+        self.title_wrap.pack(side="left", fill="x", expand=True)
+        self.header_title = TextLabel(self.title_wrap, text="ИГРАТЬ", bg=BG, fg=TEXT,
+                                     font=(FONT, 15, "bold"))
+        self.header_title.pack(anchor="w")
+        self.header_meta = TextLabel(self.title_wrap, text="", bg=BG, fg=GREY,
+                                    font=(FONT, 8))
+        self.header_meta.pack(anchor="w", pady=(1, 0))
+
+        self.back_btn = Btn(topbar, "←  НАЗАД", self.go_back, style="ghost",
+                            bg=BG, h=32, size=8, width=112)
+        self.top_status = TextLabel(topbar, text="● ГОТОВ", bg=BG, fg=GREY,
                                    font=(FONT, 8, "bold"))
-        # Page frames are bounded glass panels so the Minecraft wallpaper remains visible.
-        self.stage = self
-    def show_page(self, key, animate=True):
-        # Secondary destinations live under the "Ещё" section in the bottom dock.
+        self.top_status.pack(side="right", padx=(12, 0))
+
+        sidebar = tk.Frame(self, bg=BG, width=184, highlightthickness=0)
+        sidebar.grid(row=1, column=0, sticky="nsew", padx=(20, 12), pady=(0, 20))
+        sidebar.grid_propagate(False)
+        side_head = tk.Frame(sidebar, bg=BG)
+        side_head.pack(fill="x", padx=12, pady=(16, 12))
+        TextLabel(side_head, text="РАЗДЕЛЫ", bg=BG, fg=MUTED,
+                 font=(FONT, 7, "bold")).pack(anchor="w")
+
+        self.nav = {}
+        for key, label in NAV:
+            button = Btn(sidebar, label.upper(), lambda k=key: self.show_page(k),
+                         style="nav", bg=BG, h=42, size=9,
+                         stretch=True, align="left")
+            button.pack(fill="x", padx=9, pady=3)
+            self.nav[key] = button
+
+        TextLabel(sidebar, text="MINECRAFT", bg=BG, fg=GREY,
+                 font=(FONT, 8, "bold")).pack(anchor="w", padx=13, pady=(18, 0))
+        TextLabel(sidebar, text="DESKTOP  /  JAVA", bg=BG, fg=MUTED,
+                 font=(FONT, 7)).pack(anchor="w", padx=13, pady=(3, 0))
+
+        self.stage = tk.Frame(self, bg=BG, highlightthickness=0, bd=0)
+        self.stage.grid(row=1, column=1, sticky="nsew", padx=(0, 20), pady=(0, 20))
+
+    def go_back(self):
+        """Return to the previous page, falling back to the launcher home."""
+        target = self.page_history.pop() if self.page_history else "play"
+        self.show_page(target, remember=False)
+
+    def show_page(self, key, animate=True, remember=True):
+        if key not in self.builders:
+            key = "play"
+        if remember and self.current and self.current != key:
+            self.page_history.append(self.current)
+        if key == "play":
+            self.page_history.clear()
+
         active_key = key if key in self.nav else "more"
-        for k, b in self.nav.items():
-            b.set_style("nav_on" if k == active_key else "nav")
+        for nav_key, button in self.nav.items():
+            button.set_style("nav_on" if nav_key == active_key else "nav")
+
+        if key == "play":
+            self.back_btn.pack_forget()
+        elif self.back_btn.winfo_manager() != "pack":
+            self.back_btn.pack(side="left", before=self.title_wrap, padx=(0, 14))
+
         order = [k for k, _ in NAV]
         direction = 1
         if self.current in order and key in order:
@@ -884,7 +1687,9 @@ class App(tk.Tk):
         titles = {"play": "Играть", "stats": "Статистика", "accounts": "Аккаунты",
                   "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
                   "settings": "Настройки", "servers": "Серверы", "worlds": "Миры", "more": "Ещё"}
-        self.header_title.config(text=titles.get(key, "LainLauncher").upper())
+        title_text = titles.get(key, "LainLauncher").upper()
+        self.header_title.reserve_text(title_text)
+        self._animate_label(self.header_title, title_text, 14)
         account = self.current_account()
         name = account["name"] if account else "Без аккаунта"
         self.header_meta.config(text=f"{name}  ·  {self.version_label()}")
@@ -902,51 +1707,58 @@ class App(tk.Tk):
             if old is not None and alive(old):
                 old.place_configure(x=0)
 
-        page_sizes = {
-            "play": (430, 410), "more": (650, 450), "settings": (670, 470),
-            "accounts": (660, 470), "versions": (660, 470), "servers": (670, 470),
-            "mods": (660, 470), "worlds": (670, 470), "doctor": (670, 470),
-            "stats": (650, 460),
-        }
-        target_w, target_h = page_sizes.get(key, (660, 470))
-        w = min(target_w, max(360, self.winfo_width() - 32))
-        h = min(target_h, max(300, self.winfo_height() - 32))
-        new = tk.Frame(self.stage, bg=BG, highlightthickness=1,
-                       highlightbackground=GLASS_EDGE)
-        new.configure(width=w, height=h)
-        new.pack_propagate(False)
+        new = tk.Frame(self.stage, bg=BG, highlightthickness=0, bd=0)
         self.builders[key](new)
         self.page = new
         if animate and old is not None and alive(old):
             self.outgoing = old
-            new.place(relx=0.5, rely=0.5, anchor="center", x=28 * direction,
-                      width=w, height=h)
+            new.place(x=28 * direction, y=0, relwidth=1, relheight=1)
             new.lift()
             self._slide(new, old, 28 * direction, 0)
         else:
             if old is not None and alive(old):
                 old.destroy()
-            new.place(relx=0.5, rely=0.5, anchor="center", width=w, height=h)
+            new.place(x=0, y=0, relwidth=1, relheight=1)
 
-    def _slide(self, new, old, start, step, steps=12):
+    def _slide(self, new, old, start, step, steps=22):
         if not (alive(new) and alive(old)):
             self.slide_job = None
             return
-        t = (step + 1) / steps
-        x = int(start * (1 - (1 - (1 - t) ** 3)))
+        progress = (step + 1) / steps
+        eased = 1 - (1 - progress) ** 3
+        x = int(start * (1 - eased))
         new.place_configure(x=x)
         old.place_configure(x=x - start)
         if step + 1 < steps:
-            self.slide_job = self.after(14, self._slide, new, old, start, step + 1, steps)
+            self.slide_job = self.after(15, self._slide, new, old, start, step + 1, steps)
         else:
             self.slide_job = None
             old.destroy()
             self.outgoing = None
             new.place_configure(x=0)
 
+    def _animate_label(self, label, value, delay=16):
+        """Reveal heading text in a short, cancellable character animation."""
+        generation = getattr(label, "_reveal_generation", 0) + 1
+        label._reveal_generation = generation
+        label.config(text="")
+
+        def reveal(index=0):
+            if not alive(label) or getattr(label, "_reveal_generation", 0) != generation:
+                return
+            label.config(text=value[:index])
+            if index < len(value):
+                self.after(delay, reveal, index + 1)
+        reveal()
+
     def heading(self, p, title, sub):
-        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 14, "bold")).pack(anchor="w")
-        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(1, 8))
+        title_label = TextLabel(p, text="", bg=BG, fg=TEXT,
+                               font=(FONT, 14, "bold"))
+        title_label.pack(anchor="w")
+        title_label.reserve_text(title)
+        self._animate_label(title_label, title, 17)
+        TextLabel(p, text=sub, bg=BG, fg=GREY,
+                 font=(FONT, 8)).pack(anchor="w", pady=(1, 8))
 
     def ui(self, fn):
         def run():
@@ -963,7 +1775,7 @@ class App(tk.Tk):
         def apply():
             if hasattr(self, "top_status") and alive(self.top_status):
                 low = text.lower()
-                color = RED if ("ошибка" in low or "не удалось" in low) else ("#e6b65c" if any(x in low for x in ("загруз", "установ", "запуск")) else "#79c99a")
+                color = TEXT if ("ошибка" in low or "не удалось" in low) else GREY
                 short = text if len(text) <= 34 else text[:31] + "..."
                 self.top_status.config(text="● " + short.upper(), fg=color)
             if hasattr(self, "status") and alive(self.status):
@@ -979,60 +1791,83 @@ class App(tk.Tk):
 
     # ---------- Главная ----------
     def page_play(self, p):
-        """Single-card start screen inspired by the supplied reference."""
+        """Airy home screen built from rounded custom-rendered controls."""
         shell = tk.Frame(p, bg=BG)
-        shell.place(relx=0.5, rely=0.5, anchor="center")
+        shell.place(relx=0.5, rely=0.49, y=20, anchor="center")
 
-        card = tk.Frame(shell, bg=GLASS, highlightthickness=1,
-                        highlightbackground=GLASS_EDGE, padx=26, pady=22)
-        card.pack()
+        def settle_home(step=0, steps=18):
+            if not alive(shell):
+                return
+            progress = (step + 1) / steps
+            eased = 1 - (1 - progress) ** 3
+            shell.place_configure(y=int(20 * (1 - eased)))
+            if step + 1 < steps:
+                self.after(14, settle_home, step + 1, steps)
+        settle_home()
 
-        brand = tk.Label(card, text="LainLauncher", bg=GLASS, fg=TEXT,
-                         font=(FONT, 19, "bold"))
-        brand.pack(anchor="center", pady=(0, 13))
+        card = Panel(shell, bg=BG, fill=GLASS, radius=28)
+        card.configure(width=468)
+        card.pack(fill="x")
 
-        # Account selector.
+        content = card.inner
+        eyebrow = TextLabel(content, text="MINECRAFT  /  JAVA EDITION",
+                           bg=GLASS, fg=MUTED, font=(FONT, 8, "bold"))
+        eyebrow.pack(anchor="center", pady=(0, 7))
+
+        brand = TextLabel(content, text="", bg=GLASS, fg=TEXT,
+                         font=(FONT, 25, "bold"))
+        brand.pack(anchor="center", pady=(0, 3))
+        self._animate_label(brand, "LainLauncher", 20)
+        TextLabel(content, text="ТВОЯ ИГРА. ТВОИ ПРАВИЛА.",
+                 bg=GLASS, fg=GREY, font=(FONT, 8)).pack(
+                     anchor="center", pady=(0, 24))
+
         accounts = [a.get("name", "") for a in self.accounts if a.get("name")]
-        current = self.settings.get("account") or (accounts[0] if accounts else "")
+        current = self.settings.get("account") or (accounts[0] if accounts else "Нет аккаунтов")
         self.home_account_var = tk.StringVar(value=current)
-        self.home_account_box = self._home_combo(card, self.home_account_var,
-                                                   accounts or ["Нет аккаунтов"])
-        self.home_account_box.pack(fill="x", pady=(0, 7))
-        self.home_account_box.bind("<<ComboboxSelected>>", self._home_account_changed)
 
-        # The game version and mod loader are presented together, as in the reference.
+        TextLabel(content, text="АККАУНТ", bg=GLASS, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w", pady=(0, 6))
+        self.home_account_box = SelectBox(
+            content, self.home_account_var, accounts or ["Нет аккаунтов"],
+            command=self._home_account_changed, bg=GLASS, h=46)
+        self.home_account_box.pack(fill="x", pady=(0, 16))
+
         loader = self.settings.get("loader", "vanilla")
         loader_label = LOADER_NAMES.get(loader, "Vanilla")
         version_text = f"{loader_label} {self.settings.get('version', DEFAULT_VERSION)}"
         self.home_version_var = tk.StringVar(value=version_text)
-        self.home_version_box = self._home_combo(
-            card, self.home_version_var,
-            [f"{name} {self.settings.get('version', DEFAULT_VERSION)}"
-             for name in LOADER_NAMES.values()])
-        self.home_version_box.pack(fill="x", pady=(0, 12))
-        self.home_version_box.bind("<<ComboboxSelected>>", self._home_version_changed)
+        version_values = [
+            f"{name} {self.settings.get('version', DEFAULT_VERSION)}"
+            for name in LOADER_NAMES.values()
+        ]
+        TextLabel(content, text="ВЕРСИЯ И ЗАГРУЗЧИК", bg=GLASS, fg=MUTED,
+                 font=(FONT, 8, "bold")).pack(anchor="w", pady=(0, 6))
+        self.home_version_box = SelectBox(
+            content, self.home_version_var, version_values,
+            command=self._home_version_changed, bg=GLASS, h=46)
+        self.home_version_box.pack(fill="x", pady=(0, 22))
 
-        options = tk.Frame(card, bg=GLASS)
-        options.pack(fill="x", pady=(0, 9))
+        options = tk.Frame(content, bg=GLASS)
+        options.pack(fill="x", pady=(0, 20))
         self.delayed_launch_var = tk.BooleanVar(value=bool(self.settings.get("delayed_launch", False)))
-        tk.Checkbutton(options, text="Отложенный запуск", variable=self.delayed_launch_var,
-                       command=self._save_home_options, bg=GLASS, fg=GREY,
-                       activebackground=GLASS, activeforeground="#ffffff",
-                       selectcolor="#285a77", font=(FONT, 9), bd=0,
-                       highlightthickness=0).pack(anchor="w")
         self.snapshots_var = tk.BooleanVar(value=bool(self.settings.get("snapshots", False)))
-        tk.Checkbutton(options, text="Показывать снапшоты", variable=self.snapshots_var,
-                       command=self._save_home_snapshots, bg=GLASS, fg=GREY,
-                       activebackground=GLASS, activeforeground="#ffffff",
-                       selectcolor="#285a77", font=(FONT, 9), bd=0,
-                       highlightthickness=0).pack(anchor="w")
+        for label, variable, command in (
+            ("Отложенный запуск", self.delayed_launch_var, self._save_home_options),
+            ("Показывать снапшоты", self.snapshots_var, self._save_home_snapshots),
+        ):
+            option_row = tk.Frame(options, bg=GLASS)
+            option_row.pack(fill="x", pady=6)
+            TextLabel(option_row, text=label, bg=GLASS, fg=GREY,
+                     font=(FONT, 9)).pack(side="left")
+            Toggle(option_row, variable, cmd=command, bg=GLASS).pack(side="right")
 
-        self.home_launch_btn = Btn(card, "ЗАПУСТИТЬ", self._home_launch,
-                                   style="primary", bg=GLASS, h=47, size=13,
-                                   width=236)
-        self.home_launch_btn.pack(fill="x", pady=(0, 4))
+        self.home_launch_btn = Btn(content, "ЗАПУСТИТЬ MINECRAFT", self._home_launch,
+                                   style="primary", bg=GLASS, h=56, size=12,
+                                   width=340)
+        self.home_launch_btn.pack(fill="x", pady=(0, 14))
 
-        actions = tk.Frame(card, bg=GLASS)
+        actions = tk.Frame(content, bg=GLASS)
         actions.pack(fill="x")
         for column in range(4):
             actions.grid_columnconfigure(column, weight=1, uniform="actions")
@@ -1040,39 +1875,17 @@ class App(tk.Tk):
             ("i", "Информация и аккаунты", lambda: self.show_page("more")),
             ("▰", "Папка Minecraft", lambda: open_folder(self.settings["root"])),
             ("↻", "Версии и загрузчики", lambda: self.show_page("versions")),
-            ("☰", "Меню и настройки", self._open_home_menu),
+            ("⚙", "Настройки", lambda: self.show_page("settings")),
         ]):
-            btn = Btn(actions, symbol, command, style="ghost", bg=GLASS,
-                      h=34, size=13, width=52)
-            btn.grid(row=0, column=col, sticky="ew", padx=(0 if col == 0 else 3, 0))
-            btn.bind("<Enter>", lambda e, w=btn, t=hint: self._set_home_hint(t))
-            btn.bind("<Leave>", lambda e: self._set_home_hint(""))
+            button = Btn(actions, symbol, command, style="ghost", bg=GLASS,
+                         h=40, size=14, width=64)
+            button.grid(row=0, column=col, sticky="ew", padx=4)
+            button.bind("<Enter>", lambda e, w=button, t=hint: self._set_home_hint(t))
+            button.bind("<Leave>", lambda e: self._set_home_hint(""))
 
-        self.home_hint = tk.Label(card, text="", bg=GLASS, fg=GREY,
+        self.home_hint = TextLabel(content, text="", bg=GLASS, fg=MUTED,
                                   font=(FONT, 8))
-        self.home_hint.pack(pady=(7, 0))
-
-    def _home_combo(self, parent, variable, values):
-        from tkinter import ttk
-        style = ttk.Style(self)
-        try:
-            style.theme_use("clam")
-        except tk.TclError:
-            pass
-        style.configure("Home.TCombobox", fieldbackground="#12334c",
-                        background="#1b4965", foreground=TEXT,
-                        arrowcolor=RED_HI, bordercolor=GLASS_EDGE,
-                        lightcolor=GLASS_EDGE, darkcolor="#0a253a",
-                        padding=6, font=(FONT, 9))
-        style.map("Home.TCombobox",
-                  fieldbackground=[("readonly", "#12334c")],
-                  foreground=[("readonly", TEXT)],
-                  selectbackground=[("readonly", "#285a77")],
-                  selectforeground=[("readonly", "#ffffff")])
-        box = ttk.Combobox(parent, textvariable=variable, values=values,
-                           state="readonly", style="Home.TCombobox",
-                           font=(FONT, 9))
-        return box
+        self.home_hint.pack(pady=(12, 0))
 
     def _set_home_hint(self, value):
         if hasattr(self, "home_hint") and alive(self.home_hint):
@@ -1137,7 +1950,7 @@ class App(tk.Tk):
             pass
         panel = tk.Frame(win, bg=GLASS, padx=18, pady=18)
         panel.pack(fill="both", expand=True, padx=12, pady=12)
-        tk.Label(panel, text="МЕНЮ", bg=GLASS, fg=TEXT,
+        TextLabel(panel, text="МЕНЮ", bg=GLASS, fg=TEXT,
                  font=(FONT, 13, "bold")).pack(anchor="w", pady=(0, 12))
         entries = [
             ("Настройки", "settings"), ("Аккаунты", "accounts"),
@@ -1178,8 +1991,8 @@ class App(tk.Tk):
             if not field.entry.get().strip():
                 field.entry.insert(0, value)
                 field.entry.config(fg=MUTED)
-        field.entry.bind("<FocusIn>", focus_in)
-        field.entry.bind("<FocusOut>", focus_out)
+        field.entry.bind("<FocusIn>", focus_in, add="+")
+        field.entry.bind("<FocusOut>", focus_out, add="+")
 
     def update_ram_label(self):
         try:
@@ -1229,7 +2042,7 @@ class App(tk.Tk):
     def page_accounts(self, p):
         self.heading(p, "Аккаунты", "Профили для запуска игры")
         if not self.accounts:
-            tk.Label(p, text="Аккаунтов пока нет. Создай первый ниже.",
+            TextLabel(p, text="Аккаунтов пока нет. Создай первый ниже.",
                      bg=BG, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=(0, 6))
         for acc in self.accounts:
             is_cur = acc["name"] == self.settings.get("account")
@@ -1238,10 +2051,10 @@ class App(tk.Tk):
             Avatar(pn.inner, acc["name"]).pack(side="left", padx=(0, 12))
             info = tk.Frame(pn.inner, bg=PANEL)
             info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=acc["name"], bg=PANEL, fg=RED if is_cur else TEXT,
+            TextLabel(info, text=acc["name"], bg=PANEL, fg=RED if is_cur else TEXT,
                      font=(FONT, 13, "bold")).pack(anchor="w")
             caption = ("выбран" if is_cur else "офлайн-аккаунт") + (" · с паролем" if acc.get("password_hash") else "")
-            tk.Label(info, text=caption, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
+            TextLabel(info, text=caption, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
             Btn(pn.inner, "Удалить", lambda n=acc["name"]: self.delete_account(n), style="danger",
                 bg=PANEL, h=30, size=9).pack(side="right", padx=(6, 0))
             if not is_cur:
@@ -1250,13 +2063,13 @@ class App(tk.Tk):
 
         form = Panel(p)
         form.pack(fill="x", pady=(12, 0))
-        tk.Label(form.inner, text="Новый аккаунт", bg=PANEL, fg=TEXT,
+        TextLabel(form.inner, text="Новый аккаунт", bg=PANEL, fg=TEXT,
                  font=(FONT, 12, "bold")).pack(anchor="w")
-        tk.Label(form.inner, text="Имя: 1–16 символов, латиница, цифры и _", bg=PANEL,
+        TextLabel(form.inner, text="Имя: 1–16 символов, латиница, цифры и _", bg=PANEL,
                  fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
         self.name_field = Field(form.inner, bg=PANEL)
         self.name_field.pack(fill="x")
-        tk.Label(form.inner, text="Пароль для входа в лаунчер (необязательно)", bg=PANEL,
+        TextLabel(form.inner, text="Пароль для входа в лаунчер (необязательно)", bg=PANEL,
                  fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(8, 3))
         self.pass_field = Field(form.inner, show="*", bg=PANEL)
         self.pass_field.pack(fill="x")
@@ -1289,7 +2102,7 @@ class App(tk.Tk):
         res = {"v": None}
         pn = Panel(win, bg=BG)
         pn.pack(fill="both", expand=True, padx=18, pady=18)
-        tk.Label(pn.inner, text=f"Пароль для {name}", bg=PANEL, fg=TEXT,
+        TextLabel(pn.inner, text=f"Пароль для {name}", bg=PANEL, fg=TEXT,
                  font=(FONT, 12, "bold")).pack(anchor="w")
         field = Field(pn.inner, show="*", bg=PANEL)
         field.pack(fill="x", pady=12)
@@ -1332,7 +2145,7 @@ class App(tk.Tk):
         self.heading(p, "Серверы", "Подключайся в один клик к серверам из Minecraft или добавляй свои")
         add = Panel(p, radius=12)
         add.pack(fill="x", pady=(0, 8))
-        tk.Label(add.inner, text="ДОБАВИТЬ СЕРВЕР", bg=PANEL, fg=GREY,
+        TextLabel(add.inner, text="ДОБАВИТЬ СЕРВЕР", bg=PANEL, fg=GREY,
                  font=(FONT, 7, "bold")).pack(anchor="w")
         fields = tk.Frame(add.inner, bg=PANEL)
         fields.pack(fill="x", pady=(6, 0))
@@ -1349,13 +2162,13 @@ class App(tk.Tk):
         list_panel.pack(fill="both", expand=True)
         header = tk.Frame(list_panel.inner, bg=PANEL)
         header.pack(fill="x", pady=(0, 5))
-        tk.Label(header, text="ТВОИ СЕРВЕРЫ", bg=PANEL, fg=TEXT,
+        TextLabel(header, text="ТВОИ СЕРВЕРЫ", bg=PANEL, fg=TEXT,
                  font=(FONT, 9, "bold")).pack(side="left")
         items = self.server_entries()
-        tk.Label(header, text=f"{len(items)}", bg=PANEL, fg=RED,
+        TextLabel(header, text=f"{len(items)}", bg=PANEL, fg=RED,
                  font=(FONT, 9, "bold")).pack(side="right")
         if not items:
-            tk.Label(list_panel.inner, text="Список пока пуст. Добавь IP сервера выше или сохрани сервер в меню Minecraft.",
+            TextLabel(list_panel.inner, text="Список пока пуст. Добавь IP сервера выше или сохрани сервер в меню Minecraft.",
                      bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=780,
                      justify="left").pack(anchor="w", pady=12)
         for item in items:
@@ -1364,9 +2177,9 @@ class App(tk.Tk):
             Avatar(row, item["name"], size=34).pack(side="left", padx=(0, 9))
             info = tk.Frame(row, bg=PANEL)
             info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=item["name"], bg=PANEL, fg=TEXT,
+            TextLabel(info, text=item["name"], bg=PANEL, fg=TEXT,
                      font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(info, text=item["address"] + "  ·  " + item["source"], bg=PANEL,
+            TextLabel(info, text=item["address"] + "  ·  " + item["source"], bg=PANEL,
                      fg=GREY, font=(FONT, 8)).pack(anchor="w")
             Btn(row, "ПОДКЛЮЧИТЬ", lambda a=item["address"]: self.start_game(a),
                 style="primary", bg=PANEL, h=30, size=8).pack(side="right")
@@ -1430,12 +2243,12 @@ class App(tk.Tk):
                 worlds.append((name, modified))
         top = tk.Frame(panel.inner, bg=PANEL)
         top.pack(fill="x", pady=(0, 6))
-        tk.Label(top, text="ЛОКАЛЬНЫЕ МИРЫ", bg=PANEL, fg=TEXT,
+        TextLabel(top, text="ЛОКАЛЬНЫЕ МИРЫ", bg=PANEL, fg=TEXT,
                  font=(FONT, 9, "bold")).pack(side="left")
-        tk.Label(top, text=str(len(worlds)), bg=PANEL, fg=RED,
+        TextLabel(top, text=str(len(worlds)), bg=PANEL, fg=RED,
                  font=(FONT, 9, "bold")).pack(side="right")
         if not worlds:
-            tk.Label(panel.inner, text="Миров пока нет. Создай мир в Minecraft — он появится здесь.",
+            TextLabel(panel.inner, text="Миров пока нет. Создай мир в Minecraft — он появится здесь.",
                      bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=15)
         for name, modified in worlds:
             row = tk.Frame(panel.inner, bg=PANEL)
@@ -1443,9 +2256,9 @@ class App(tk.Tk):
             Avatar(row, name, size=34).pack(side="left", padx=(0, 9))
             info = tk.Frame(row, bg=PANEL)
             info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=name, bg=PANEL, fg=TEXT,
+            TextLabel(info, text=name, bg=PANEL, fg=TEXT,
                      font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(info, text="Изменён: " + modified, bg=PANEL, fg=GREY,
+            TextLabel(info, text="Изменён: " + modified, bg=PANEL, fg=GREY,
                      font=(FONT, 8)).pack(anchor="w")
             Btn(row, "БЭКАП", lambda n=name: self.backup_world(n), style="soft",
                 bg=PANEL, h=29, size=8).pack(side="right")
@@ -1465,7 +2278,7 @@ class App(tk.Tk):
         win.transient(self)
         pn = Panel(win, bg=BG)
         pn.pack(fill="both", expand=True, padx=14, pady=14)
-        tk.Label(pn.inner, text="Какой мир сохранить?", bg=PANEL, fg=TEXT,
+        TextLabel(pn.inner, text="Какой мир сохранить?", bg=PANEL, fg=TEXT,
                  font=(FONT, 11, "bold")).pack(anchor="w")
         for name in worlds:
             Btn(pn.inner, name, lambda n=name: (win.destroy(), self.backup_world(n)),
@@ -1568,9 +2381,9 @@ class App(tk.Tk):
         for idx, (title, desc, action, command) in enumerate(items):
             card = Panel(grid, radius=12)
             card.grid(row=idx // 2, column=idx % 2, sticky="nsew", padx=4, pady=4)
-            tk.Label(card.inner, text=title, bg=PANEL, fg=TEXT,
+            TextLabel(card.inner, text=title, bg=PANEL, fg=TEXT,
                      font=(FONT, 10, "bold")).pack(anchor="w")
-            tk.Label(card.inner, text=desc, bg=PANEL, fg=GREY,
+            TextLabel(card.inner, text=desc, bg=PANEL, fg=GREY,
                      font=(FONT, 8), wraplength=330).pack(anchor="w", pady=(4, 8))
             Btn(card.inner, action, command, style="ghost", bg=PANEL,
                 h=29, size=8).pack(anchor="w")
@@ -1579,7 +2392,7 @@ class App(tk.Tk):
 
         folders = Panel(p, radius=12)
         folders.pack(fill="x", pady=(9, 0))
-        tk.Label(folders.inner, text="ПАПКИ ИГРЫ", bg=PANEL, fg=GREY,
+        TextLabel(folders.inner, text="ПАПКИ ИГРЫ", bg=PANEL, fg=GREY,
                  font=(FONT, 7, "bold")).pack(anchor="w", pady=(0, 6))
         row = tk.Frame(folders.inner, bg=PANEL)
         row.pack(fill="x")
@@ -1603,20 +2416,18 @@ class App(tk.Tk):
                 bg=PANEL, h=30, size=9).pack(side="left", padx=(0, 6))
         if self.loader_tab == "vanilla":
             self.snap_var = tk.BooleanVar(value=self.settings["snapshots"])
-            tk.Label(row, text="Снапшоты", bg=PANEL, fg=GREY, font=(FONT, 9)).pack(side="right", padx=6)
+            TextLabel(row, text="Снапшоты", bg=PANEL, fg=GREY, font=(FONT, 9)).pack(side="right", padx=6)
             Toggle(row, self.snap_var, cmd=self.on_snapshots_toggle, bg=PANEL).pack(side="right")
 
         lp = Panel(p)
         lp.pack(fill="x", pady=(10, 0))
-        self.version_status = tk.Label(lp.inner, text="", bg=PANEL, fg=GREY, font=(FONT, 9))
+        self.version_status = TextLabel(lp.inner, text="", bg=PANEL, fg=GREY, font=(FONT, 9))
         self.version_status.pack(anchor="w")
         self.version_filter = Field(lp.inner, bg=PANEL, h=32)
         self.version_filter.pack(fill="x", pady=(6, 3))
         self.version_filter.entry.insert(0, "Поиск версии, например 1.21.4")
         self.version_filter.entry.bind("<KeyRelease>", lambda e: self.fill_versions())
-        self.version_list = tk.Listbox(lp.inner, bg=FIELD, fg=TEXT, selectbackground=RED,
-                                       selectforeground=TEXT, relief="flat", font=(FONT, 10),
-                                       highlightthickness=0, bd=0, activestyle="none", height=8)
+        self.version_list = VersionList(lp.inner, bg=FIELD, font=(FONT, 10), rows=8)
         self.version_list.pack(fill="x", pady=6)
         Btn(lp.inner, "Выбрать версию", self.choose_version, style="primary", h=34).pack(anchor="e")
 
@@ -1700,7 +2511,7 @@ class App(tk.Tk):
 
     def page_mods(self, p):
         self.heading(p, "Моды", "Включай и выключай моды переключателем")
-        tk.Label(p, text="Для модов нужен загрузчик Fabric или Forge под выбранную версию игры.",
+        TextLabel(p, text="Для модов нужен загрузчик Fabric или Forge под выбранную версию игры.",
                  bg=BG, fg=MUTED, font=(FONT, 9)).pack(anchor="w", pady=(0, 8))
         mods_dir, dis_dir = self.mod_dirs()
         os.makedirs(mods_dir, exist_ok=True)
@@ -1715,13 +2526,13 @@ class App(tk.Tk):
         box = Panel(p)
         box.pack(fill="x")
         if not jars:
-            tk.Label(box.inner, text="Модов нет. Добавь .jar файл кнопкой ниже.",
+            TextLabel(box.inner, text="Модов нет. Добавь .jar файл кнопкой ниже.",
                      bg=PANEL, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=4)
         for name, enabled in jars:
             var = tk.BooleanVar(value=enabled)
             r = tk.Frame(box.inner, bg=PANEL)
             r.pack(fill="x", pady=3)
-            tk.Label(r, text=name, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(side="left")
+            TextLabel(r, text=name, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(side="left")
             Toggle(r, var, cmd=lambda n=name, v=var: self.toggle_mod(n, v.get()), bg=PANEL).pack(side="right")
 
         row = tk.Frame(p, bg=BG)
@@ -1756,16 +2567,16 @@ class App(tk.Tk):
         mods_dir, _ = self.mod_dirs()
         top = Panel(p)
         top.pack(fill="x", pady=(0, 8))
-        tk.Label(top.inner, text="MOD DOCTOR", bg=PANEL, fg=RED,
+        TextLabel(top.inner, text="MOD DOCTOR", bg=PANEL, fg=RED,
                  font=(FONT, 12, "bold")).pack(anchor="w")
-        tk.Label(top.inner, text="Проверяет JAR-файлы, повторяющиеся mod ID и несовпадение версии Minecraft.",
+        TextLabel(top.inner, text="Проверяет JAR-файлы, повторяющиеся mod ID и несовпадение версии Minecraft.",
                  bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 10))
         Btn(top.inner, "ПРОВЕРИТЬ МОДЫ", self.run_mod_doctor, style="primary", h=36).pack(anchor="w")
         repair = Panel(p)
         repair.pack(fill="x", pady=4)
-        tk.Label(repair.inner, text="Ремонт Fabric / ASM", bg=PANEL, fg=TEXT,
+        TextLabel(repair.inner, text="Ремонт Fabric / ASM", bg=PANEL, fg=TEXT,
                  font=(FONT, 11, "bold")).pack(anchor="w")
-        tk.Label(repair.inner, text="Удаляет дубли одной и той же библиотеки ASM из JSON профиля Fabric. Перед изменением создаётся резервная копия.",
+        TextLabel(repair.inner, text="Удаляет дубли одной и той же библиотеки ASM из JSON профиля Fabric. Перед изменением создаётся резервная копия.",
                  bg=PANEL, fg=GREY, font=(FONT, 9), wraplength=560, justify="left").pack(anchor="w", pady=(4, 8))
         Btn(repair.inner, "ИСПРАВИТЬ ASM", self.repair_asm, style="soft", h=34).pack(anchor="w")
         self.doctor_output = tk.Text(p, height=10, bg=FIELD, fg=TEXT, insertbackground=RED,
@@ -1874,14 +2685,14 @@ class App(tk.Tk):
             r.pack(fill="x")
             left = tk.Frame(r, bg=PANEL)
             left.pack(side="left", fill="x", expand=True)
-            tk.Label(left, text=title, bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
-            tk.Label(left, text=value, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(anchor="w")
+            TextLabel(left, text=title, bg=PANEL, fg=GREY, font=(FONT, 8, "bold")).pack(anchor="w")
+            TextLabel(left, text=value, bg=PANEL, fg=TEXT, font=(FONT, 10)).pack(anchor="w")
             Btn(r, btn, cmd, style=style, bg=PANEL, h=30, size=9).pack(side="right")
         maintenance = Panel(p, radius=12)
         maintenance.pack(fill="x", pady=(8, 4))
-        tk.Label(maintenance.inner, text="ОБСЛУЖИВАНИЕ", bg=PANEL, fg=GREY,
+        TextLabel(maintenance.inner, text="ОБСЛУЖИВАНИЕ", bg=PANEL, fg=GREY,
                  font=(FONT, 7, "bold")).pack(anchor="w")
-        tk.Label(maintenance.inner, text="Очистка временного кэша лаунчера. Миры, моды, ресурсы, библиотеки и логи не затрагиваются.",
+        TextLabel(maintenance.inner, text="Очистка временного кэша лаунчера. Миры, моды, ресурсы, библиотеки и логи не затрагиваются.",
                  bg=PANEL, fg=GREY, font=(FONT, 8), wraplength=700,
                  justify="left").pack(anchor="w", pady=(4, 8))
         Btn(maintenance.inner, "ОЧИСТИТЬ БЕЗОПАСНЫЙ КЭШ", self.clear_safe_cache,
@@ -1961,10 +2772,10 @@ class App(tk.Tk):
         top = sorted(stats.items(), key=lambda kv: kv[1], reverse=True)[:5]
         total = sum(stats.values())
 
-        tk.Label(p, text=f"Всего в играх: {fmt_hours(total)}", bg=BG, fg=RED,
+        TextLabel(p, text=f"Всего в играх: {fmt_hours(total)}", bg=BG, fg=RED,
                  font=(FONT, 11, "bold")).pack(anchor="w", pady=(0, 8))
         if not top:
-            tk.Label(p, text="Пока пусто. Зайди на сервер, и время начнёт считаться.",
+            TextLabel(p, text="Пока пусто. Зайди на сервер, и время начнёт считаться.",
                      bg=BG, fg=GREY, font=(FONT, 10)).pack(anchor="w", pady=10)
             return
 
@@ -1976,7 +2787,7 @@ class App(tk.Tk):
             pn.pack(fill="x", pady=3)
             r = tk.Frame(pn.inner, bg=PANEL)
             r.pack(fill="x")
-            tk.Label(r, text=str(rank), bg=PANEL, fg=GREY, font=(FONT, 12, "bold"), width=2).pack(side="left")
+            TextLabel(r, text=str(rank), bg=PANEL, fg=GREY, font=(FONT, 12, "bold"), width=2).pack(side="left")
             icon = None
             if srv.get("icon"):
                 try:
@@ -1993,9 +2804,9 @@ class App(tk.Tk):
                 Avatar(r, name).pack(side="left", padx=(6, 12))
             info = tk.Frame(r, bg=PANEL)
             info.pack(side="left", fill="x", expand=True)
-            tk.Label(info, text=name, bg=PANEL, fg=TEXT, font=(FONT, 12, "bold")).pack(anchor="w")
-            tk.Label(info, text=key, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
-            tk.Label(r, text=fmt_hours(seconds), bg=PANEL, fg=RED, font=(FONT, 11, "bold")).pack(side="right", padx=10)
+            TextLabel(info, text=name, bg=PANEL, fg=TEXT, font=(FONT, 12, "bold")).pack(anchor="w")
+            TextLabel(info, text=key, bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
+            TextLabel(r, text=fmt_hours(seconds), bg=PANEL, fg=RED, font=(FONT, 11, "bold")).pack(side="right", padx=10)
 
     def on_close(self):
         if self.game_running:
@@ -2031,9 +2842,9 @@ class App(tk.Tk):
         pn = Panel(win, bg=BG)
         pn.pack(fill="both", expand=True, padx=18, pady=18)
 
-        tk.Label(pn.inner, text="Minecraft завершился с ошибкой", bg=PANEL, fg=RED,
+        TextLabel(pn.inner, text="Minecraft завершился с ошибкой", bg=PANEL, fg=RED,
                  font=(FONT, 15, "bold")).pack(anchor="w")
-        tk.Label(pn.inner, text=f"Версия {version} · код завершения {code}",
+        TextLabel(pn.inner, text=f"Версия {version} · код завершения {code}",
                  bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w", pady=(2, 10))
 
         box = tk.Frame(pn.inner, bg=FIELD)
@@ -2068,20 +2879,20 @@ class App(tk.Tk):
         pn.pack(fill="x", pady=4)
         head = tk.Frame(pn.inner, bg=PANEL)
         head.pack(fill="x")
-        tk.Label(head, text="Java для игры", bg=PANEL, fg=TEXT, font=(FONT, 11, "bold")).pack(side="left")
+        TextLabel(head, text="Java для игры", bg=PANEL, fg=TEXT, font=(FONT, 11, "bold")).pack(side="left")
         Btn(head, "Указать вручную", self.pick_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right")
         Btn(head, "Авто для версии", self.auto_java, style="ghost", bg=PANEL, h=28, size=9).pack(side="right", padx=6)
         required, component = java_requirement(self.settings.get("version", DEFAULT_VERSION), self.settings.get("root"))
-        tk.Label(pn.inner,
+        TextLabel(pn.inner,
                  text=f"Minecraft {self.settings.get('version')} → подобрана Java {required}",
                  bg=PANEL, fg=RED, font=(FONT, 10, "bold")).pack(anchor="w", pady=(8, 2))
-        tk.Label(pn.inner,
+        TextLabel(pn.inner,
                  text="Лаунчер сначала ищет подходящую Java на компьютере, а если её нет — пробует установить официальный runtime Mojang.",
                  bg=PANEL, fg=GREY, font=(FONT, 8), wraplength=680, justify="left").pack(anchor="w")
         self.java_box = tk.Frame(pn.inner, bg=PANEL)
         self.java_box.pack(fill="x", pady=(8, 0))
         if self.java_cache is None:
-            tk.Label(self.java_box, text="Поиск установленных Java...", bg=PANEL, fg=GREY,
+            TextLabel(self.java_box, text="Поиск установленных Java...", bg=PANEL, fg=GREY,
                      font=(FONT, 9)).pack(anchor="w")
             threading.Thread(target=self._scan_java, daemon=True).start()
         else:
@@ -2101,7 +2912,7 @@ class App(tk.Tk):
         if not cur and legacy and java_major(legacy) == req:
             cur = legacy
         if not self.java_cache:
-            tk.Label(self.java_box, text="Java не найдена автоматически. При запуске лаунчер попробует скачать runtime.",
+            TextLabel(self.java_box, text="Java не найдена автоматически. При запуске лаунчер попробует скачать runtime.",
                      bg=PANEL, fg=GREY, font=(FONT, 9)).pack(anchor="w")
         for path, major in self.java_cache:
             exact = major == req
@@ -2110,16 +2921,16 @@ class App(tk.Tk):
             r.pack(fill="x", pady=2)
             title = f"Java {major}" if major else "версия неизвестна"
             suffix = " · подходит" if exact else (" · новее" if compatible else " · не подходит")
-            tk.Label(r, text=title + suffix, bg=PANEL,
-                     fg=("#78d69b" if exact else (TEXT if compatible else "#ff6b74")),
+            TextLabel(r, text=title + suffix, bg=PANEL,
+                     fg=("#d8dbe0" if exact else (TEXT if compatible else "#d0d4db")),
                      font=(FONT, 9, "bold"), width=25, anchor="w").pack(side="left")
-            tk.Label(r, text=path, bg=PANEL, fg=GREY, font=(FONT, 8), anchor="w").pack(
+            TextLabel(r, text=path, bg=PANEL, fg=GREY, font=(FONT, 8), anchor="w").pack(
                 side="left", fill="x", expand=True)
             selected = path == cur
             Btn(r, "Выбрана" if selected else "Выбрать", lambda p=path: self.set_java(p),
                 style="soft" if selected else "ghost", bg=PANEL, h=25, size=8).pack(side="right")
         if cur and cur not in [path for path, _ in self.java_cache]:
-            tk.Label(self.java_box, text=f"Сохранённый путь: {cur}", bg=PANEL, fg=GREY,
+            TextLabel(self.java_box, text=f"Сохранённый путь: {cur}", bg=PANEL, fg=GREY,
                      font=(FONT, 8)).pack(anchor="w", pady=(4, 0))
 
     def set_java(self, path):
