@@ -36,6 +36,9 @@ jobs:
       - name: Check Python syntax
         run: python -m py_compile launcher.py
 
+      - name: Validate launcher navigation and helper methods
+        run: python -m unittest discover -s tests -v
+
       - name: Build Windows executable
         shell: pwsh
         run: |
