@@ -36,22 +36,21 @@ NAV = [("play", "Играть"), ("versions", "Версии"), ("servers", "Се
 
 LOADER_NAMES = {"vanilla": "Vanilla", "fabric": "Fabric", "forge": "Forge"}
 
-# Monochrome palette: charcoal surfaces, soft greys and clean white accents.
-# LainLauncher ocean-glass palette.
-BG = "#102b42"
-SIDE = "#173a55"
-PANEL = "#1b405c"
-FIELD = "#12324b"
-LINE = "#618da8"
-SHADOW = "#081c2c"
-RED = "#83d7ec"
-RED_HI = "#c4f2ff"
-RED_DARK = "#285a77"
-TEXT = "#f3fbff"
-GREY = "#b7d0df"
-MUTED = "#85a8bd"
-GLASS = "#193d59"
-GLASS_EDGE = "#8bbdd5"
+# Monochrome glass palette: charcoal surfaces, layered graphite and soft white accents.
+BG = "#0b0d11"
+SIDE = "#12151a"
+PANEL = "#1d222a"
+FIELD = "#101319"
+LINE = "#3b414b"
+SHADOW = "#08090c"
+RED = "#e1e4e9"
+RED_HI = "#ffffff"
+RED_DARK = "#626a76"
+TEXT = "#f4f5f7"
+GREY = "#b0b5bd"
+MUTED = "#7f8792"
+GLASS = "#181c22"
+GLASS_EDGE = "#424954"
 FONT = "Segoe UI"
 
 # Profile artwork bundled with the launcher. GIF is supported by Tkinter on Windows 7.
@@ -522,21 +521,21 @@ class Panel(tk.Canvas):
             self.config(height=h)
         self.delete("bg")
         r = self.radius
-        rrect(self, 5, self.SH + 3, w - 5, h - 1, r, fill="#050505", outline="", tags="bg")
+        rrect(self, 5, self.SH + 3, w - 5, h - 1, r, fill="#050608", outline="", tags="bg")
         rrect(self, 2, self.SH, w - 2, h - 3, r, fill=SHADOW, outline="", tags="bg")
-        rrect(self, 0, 0, w - 1, h - self.SH - 1, r, fill=self.fill, outline="#66848a", width=1, tags="bg")
+        rrect(self, 0, 0, w - 1, h - self.SH - 1, r, fill=self.fill, outline="#555d68", width=1, tags="bg")
         self.tag_lower("bg")
 
 
 class Btn(tk.Canvas):
     """Скруглённая кнопка с плавной сменой цвета при наведении."""
     STYLES = {
-        "primary": (RED, RED_HI, "#08243a"),
-        "soft": ("#285a77", "#347594", "#f3fbff"),
-        "ghost": ("#204c68", "#2d6382", "#edf8ff"),
-        "danger": ("#643d4a", "#805061", "#ffffff"),
-        "nav": ("#193d59", "#285a77", "#b7d0df"),
-        "nav_on": ("#347594", "#438cab", "#ffffff"),
+        "primary": (RED, RED_HI, "#111318"),
+        "soft": ("#343a44", "#505761", "#f4f5f7"),
+        "ghost": ("#262b33", "#454b56", "#f3f4f6"),
+        "danger": ("#30343b", "#454b56", "#ffffff"),
+        "nav": ("#181c22", "#343a44", "#c2c7cf"),
+        "nav_on": ("#505761", "#626a76", "#ffffff"),
     }
 
     def __init__(self, parent, text, cmd, style="primary", bg=PANEL, size=10, h=34,
@@ -625,17 +624,30 @@ class Field(tk.Canvas):
         super().__init__(parent, height=h, bg=bg, highlightthickness=0, bd=0)
         self.h = h
         self.border = LINE
-        self.entry = tk.Entry(self, bg=FIELD, fg=TEXT, insertbackground=RED, relief="flat",
+        self._border_job = None
+        self.entry = tk.Entry(self, bg=FIELD, fg=TEXT, insertbackground=RED_HI, relief="flat",
                               font=(FONT, 11), show=show or "", bd=0, highlightthickness=0)
         self.win = self.create_window(12, h // 2, anchor="w", window=self.entry)
-        self.entry.bind("<FocusIn>", lambda e: self._set_border(RED))
+        self.entry.bind("<FocusIn>", lambda e: self._set_border(RED_HI))
         self.entry.bind("<FocusOut>", lambda e: self._set_border(LINE))
         self.bind("<Configure>", lambda e: self._paint())
         self.bind("<Button-1>", lambda e: self.entry.focus_set())
 
-    def _set_border(self, color):
-        self.border = color
-        self._paint()
+    def _set_border(self, color, steps=6):
+        if self._border_job:
+            try:
+                self.after_cancel(self._border_job)
+            except tk.TclError:
+                pass
+        start = self.border
+
+        def animate(index=1):
+            if not alive(self):
+                return
+            self.border = lerp(start, color, index / steps)
+            self._paint()
+            self._border_job = self.after(16, animate, index + 1) if index < steps else None
+        animate()
 
     def _paint(self):
         if not alive(self):
@@ -688,7 +700,7 @@ class Toggle(tk.Canvas):
         if not alive(self):
             return
         self.delete("all")
-        rrect(self, 0, 0, 43, 23, 11, fill=lerp("#2a2a2a", RED, self.pos), outline="")
+        rrect(self, 0, 0, 43, 23, 11, fill=lerp("#30343b", RED, self.pos), outline="")
         x = 3 + self.pos * 20
         self.create_oval(x, 3, x + 18, 21, fill=TEXT, outline="")
 
@@ -783,15 +795,9 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("LainLauncher · Minecraft")
-        self.geometry("760x520")
-        self.minsize(560, 400)
+        self.geometry("1040x700")
+        self.minsize(820, 580)
         self.configure(bg=BG)
-        self._wallpaper_photo = None
-        self._wallpaper_label = None
-        self._wallpaper_source = os.path.join(ASSET_DIR, "background.jpg")
-        self._wallpaper_source_b64 = self._wallpaper_source + ".b64"
-        self.bind("<Configure>", self._resize_wallpaper)
-
         self.settings = load_json(CONFIG_FILE, {})
         self.settings.setdefault("root", DEFAULT_ROOT)
         self.settings.setdefault("version", DEFAULT_VERSION)
@@ -827,55 +833,82 @@ class App(tk.Tk):
         self.show_page("play", animate=False)
 
     # ---------- оболочка ----------
-    def _resize_wallpaper(self, event=None):
-        # Wallpaper is a real bundled image, scaled to the current window size.
-        if event is not None and event.widget is not self:
-            return
-        try:
-            from PIL import Image, ImageTk
-            w, h = max(1, self.winfo_width()), max(1, self.winfo_height())
-            if os.path.isfile(self._wallpaper_source):
-                image = Image.open(self._wallpaper_source).convert("RGB")
-            elif os.path.isfile(self._wallpaper_source_b64):
-                with open(self._wallpaper_source_b64, "r", encoding="ascii") as wallpaper_file:
-                    raw = base64.b64decode(wallpaper_file.read().strip())
-                image = Image.open(io.BytesIO(raw)).convert("RGB")
-            else:
-                return
-            ratio = max(w / image.width, h / image.height)
-            resampling = getattr(Image, "Resampling", Image)
-            image = image.resize((int(image.width * ratio), int(image.height * ratio)), resampling.LANCZOS)
-            left = max(0, (image.width - w) // 2)
-            top = max(0, (image.height - h) // 2)
-            image = image.crop((left, top, left + w, top + h))
-            self._wallpaper_photo = ImageTk.PhotoImage(image)
-            if self._wallpaper_label is None or not alive(self._wallpaper_label):
-                self._wallpaper_label = tk.Label(self, image=self._wallpaper_photo, bd=0)
-                self._wallpaper_label.place(x=0, y=0, relwidth=1, relheight=1)
-                self._wallpaper_label.lower()
-            else:
-                self._wallpaper_label.configure(image=self._wallpaper_photo)
-                self._wallpaper_label.lower()
-        except Exception:
-            # The launcher remains usable if Pillow is not installed.
-            pass
-
     def build_shell(self):
-        """Minimal launcher shell: a single compact panel centered on a dark canvas."""
+        """Build the permanent monochrome launcher frame and navigation."""
         self.configure(bg=BG)
-        self.nav = {}
-        self.header_title = tk.Label(self, text="LainLauncher", bg=BG, fg=TEXT,
-                                     font=(FONT, 1))
-        self.header_meta = tk.Label(self, text="", bg=BG, fg=GREY, font=(FONT, 1))
-        self.top_status = tk.Label(self, text="● ГОТОВ", bg=BG, fg=GREY,
+        self.grid_columnconfigure(0, weight=0, minsize=184)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        self.page_history = []
+
+        topbar = tk.Frame(self, bg=BG)
+        topbar.grid(row=0, column=0, columnspan=2, sticky="ew",
+                    padx=20, pady=(16, 12))
+        brand = tk.Label(topbar, text="LAIN  /  LAUNCHER", bg=BG, fg=GREY,
+                         font=(FONT, 9, "bold"))
+        brand.pack(side="left", padx=(0, 18))
+
+        self.title_wrap = tk.Frame(topbar, bg=BG)
+        self.title_wrap.pack(side="left", fill="x", expand=True)
+        self.header_title = tk.Label(self.title_wrap, text="ИГРАТЬ", bg=BG, fg=TEXT,
+                                     font=(FONT, 15, "bold"))
+        self.header_title.pack(anchor="w")
+        self.header_meta = tk.Label(self.title_wrap, text="", bg=BG, fg=GREY,
+                                    font=(FONT, 8))
+        self.header_meta.pack(anchor="w", pady=(1, 0))
+
+        self.back_btn = Btn(topbar, "←  НАЗАД", self.go_back, style="ghost",
+                            bg=BG, h=32, size=8, width=112)
+        self.top_status = tk.Label(topbar, text="● ГОТОВ", bg=BG, fg=GREY,
                                    font=(FONT, 8, "bold"))
-        # Page frames are bounded glass panels so the Minecraft wallpaper remains visible.
-        self.stage = self
-    def show_page(self, key, animate=True):
-        # Secondary destinations live under the "Ещё" section in the bottom dock.
+        self.top_status.pack(side="right", padx=(12, 0))
+
+        sidebar = tk.Frame(self, bg=SIDE, width=184, highlightthickness=1,
+                           highlightbackground=LINE)
+        sidebar.grid(row=1, column=0, sticky="nsew", padx=(20, 12), pady=(0, 20))
+        sidebar.grid_propagate(False)
+        side_head = tk.Frame(sidebar, bg=SIDE)
+        side_head.pack(fill="x", padx=12, pady=(16, 12))
+        tk.Label(side_head, text="РАЗДЕЛЫ", bg=SIDE, fg=MUTED,
+                 font=(FONT, 7, "bold")).pack(anchor="w")
+
+        self.nav = {}
+        for key, label in NAV:
+            button = Btn(sidebar, label.upper(), lambda k=key: self.show_page(k),
+                         style="nav", bg=SIDE, h=38, size=8,
+                         stretch=True, align="left")
+            button.pack(fill="x", padx=9, pady=3)
+            self.nav[key] = button
+
+        tk.Frame(sidebar, bg=LINE, height=1).pack(fill="x", padx=12, pady=(14, 10))
+        tk.Label(sidebar, text="MINECRAFT", bg=SIDE, fg=GREY,
+                 font=(FONT, 8, "bold")).pack(anchor="w", padx=13)
+        tk.Label(sidebar, text="DESKTOP  /  JAVA", bg=SIDE, fg=MUTED,
+                 font=(FONT, 7)).pack(anchor="w", padx=13, pady=(3, 0))
+
+        self.stage = tk.Frame(self, bg=BG, highlightthickness=0)
+        self.stage.grid(row=1, column=1, sticky="nsew", padx=(0, 20), pady=(0, 20))
+
+    def go_back(self):
+        """Return to the previous page, falling back to the launcher home."""
+        target = self.page_history.pop() if self.page_history else "play"
+        self.show_page(target, remember=False)
+
+    def show_page(self, key, animate=True, remember=True):
+        if key not in self.builders:
+            key = "play"
+        if remember and self.current and self.current != key:
+            self.page_history.append(self.current)
+
         active_key = key if key in self.nav else "more"
-        for k, b in self.nav.items():
-            b.set_style("nav_on" if k == active_key else "nav")
+        for nav_key, button in self.nav.items():
+            button.set_style("nav_on" if nav_key == active_key else "nav")
+
+        if key == "play":
+            self.back_btn.pack_forget()
+        elif self.back_btn.winfo_manager() != "pack":
+            self.back_btn.pack(side="left", before=self.title_wrap, padx=(0, 14))
+
         order = [k for k, _ in NAV]
         direction = 1
         if self.current in order and key in order:
@@ -884,7 +917,7 @@ class App(tk.Tk):
         titles = {"play": "Играть", "stats": "Статистика", "accounts": "Аккаунты",
                   "versions": "Версии игры", "mods": "Моды", "doctor": "Диагностика",
                   "settings": "Настройки", "servers": "Серверы", "worlds": "Миры", "more": "Ещё"}
-        self.header_title.config(text=titles.get(key, "LainLauncher").upper())
+        self._animate_label(self.header_title, titles.get(key, "LainLauncher").upper(), 14)
         account = self.current_account()
         name = account["name"] if account else "Без аккаунта"
         self.header_meta.config(text=f"{name}  ·  {self.version_label()}")
@@ -902,51 +935,74 @@ class App(tk.Tk):
             if old is not None and alive(old):
                 old.place_configure(x=0)
 
+        self.stage.update_idletasks()
         page_sizes = {
-            "play": (430, 410), "more": (650, 450), "settings": (670, 470),
-            "accounts": (660, 470), "versions": (660, 470), "servers": (670, 470),
-            "mods": (660, 470), "worlds": (670, 470), "doctor": (670, 470),
-            "stats": (650, 460),
+            "play": (560, 560), "more": (900, 640), "settings": (940, 660),
+            "accounts": (900, 660), "versions": (900, 660), "servers": (940, 660),
+            "mods": (900, 660), "worlds": (940, 660), "doctor": (940, 660),
+            "stats": (900, 640),
         }
-        target_w, target_h = page_sizes.get(key, (660, 470))
-        w = min(target_w, max(360, self.winfo_width() - 32))
-        h = min(target_h, max(300, self.winfo_height() - 32))
+        target_w, target_h = page_sizes.get(key, (900, 660))
+        stage_w = max(360, self.stage.winfo_width() - 18)
+        stage_h = max(300, self.stage.winfo_height() - 18)
+        width = min(target_w, stage_w)
+        height = min(target_h, stage_h)
+
         new = tk.Frame(self.stage, bg=BG, highlightthickness=1,
-                       highlightbackground=GLASS_EDGE)
-        new.configure(width=w, height=h)
+                       highlightbackground=LINE)
+        new.configure(width=width, height=height)
         new.pack_propagate(False)
         self.builders[key](new)
         self.page = new
         if animate and old is not None and alive(old):
             self.outgoing = old
             new.place(relx=0.5, rely=0.5, anchor="center", x=28 * direction,
-                      width=w, height=h)
+                      width=width, height=height)
             new.lift()
             self._slide(new, old, 28 * direction, 0)
         else:
             if old is not None and alive(old):
                 old.destroy()
-            new.place(relx=0.5, rely=0.5, anchor="center", width=w, height=h)
+            new.place(relx=0.5, rely=0.5, anchor="center", width=width, height=height)
 
-    def _slide(self, new, old, start, step, steps=12):
+    def _slide(self, new, old, start, step, steps=14):
         if not (alive(new) and alive(old)):
             self.slide_job = None
             return
-        t = (step + 1) / steps
-        x = int(start * (1 - (1 - (1 - t) ** 3)))
+        progress = (step + 1) / steps
+        eased = 1 - (1 - progress) ** 3
+        x = int(start * (1 - eased))
         new.place_configure(x=x)
         old.place_configure(x=x - start)
         if step + 1 < steps:
-            self.slide_job = self.after(14, self._slide, new, old, start, step + 1, steps)
+            self.slide_job = self.after(12, self._slide, new, old, start, step + 1, steps)
         else:
             self.slide_job = None
             old.destroy()
             self.outgoing = None
             new.place_configure(x=0)
 
+    def _animate_label(self, label, value, delay=16):
+        """Reveal heading text in a short, cancellable character animation."""
+        generation = getattr(label, "_reveal_generation", 0) + 1
+        label._reveal_generation = generation
+        label.config(text="")
+
+        def reveal(index=0):
+            if not alive(label) or getattr(label, "_reveal_generation", 0) != generation:
+                return
+            label.config(text=value[:index])
+            if index < len(value):
+                self.after(delay, reveal, index + 1)
+        reveal()
+
     def heading(self, p, title, sub):
-        tk.Label(p, text=title, bg=BG, fg=TEXT, font=(FONT, 14, "bold")).pack(anchor="w")
-        tk.Label(p, text=sub, bg=BG, fg=GREY, font=(FONT, 8)).pack(anchor="w", pady=(1, 8))
+        title_label = tk.Label(p, text="", bg=BG, fg=TEXT,
+                               font=(FONT, 14, "bold"))
+        title_label.pack(anchor="w")
+        self._animate_label(title_label, title, 17)
+        tk.Label(p, text=sub, bg=BG, fg=GREY,
+                 font=(FONT, 8)).pack(anchor="w", pady=(1, 8))
 
     def ui(self, fn):
         def run():
@@ -963,7 +1019,7 @@ class App(tk.Tk):
         def apply():
             if hasattr(self, "top_status") and alive(self.top_status):
                 low = text.lower()
-                color = RED if ("ошибка" in low or "не удалось" in low) else ("#e6b65c" if any(x in low for x in ("загруз", "установ", "запуск")) else "#79c99a")
+                color = TEXT if ("ошибка" in low or "не удалось" in low) else GREY
                 short = text if len(text) <= 34 else text[:31] + "..."
                 self.top_status.config(text="● " + short.upper(), fg=color)
             if hasattr(self, "status") and alive(self.status):
@@ -1013,19 +1069,18 @@ class App(tk.Tk):
         self.home_version_box.bind("<<ComboboxSelected>>", self._home_version_changed)
 
         options = tk.Frame(card, bg=GLASS)
-        options.pack(fill="x", pady=(0, 9))
+        options.pack(fill="x", pady=(0, 12))
         self.delayed_launch_var = tk.BooleanVar(value=bool(self.settings.get("delayed_launch", False)))
-        tk.Checkbutton(options, text="Отложенный запуск", variable=self.delayed_launch_var,
-                       command=self._save_home_options, bg=GLASS, fg=GREY,
-                       activebackground=GLASS, activeforeground="#ffffff",
-                       selectcolor="#285a77", font=(FONT, 9), bd=0,
-                       highlightthickness=0).pack(anchor="w")
         self.snapshots_var = tk.BooleanVar(value=bool(self.settings.get("snapshots", False)))
-        tk.Checkbutton(options, text="Показывать снапшоты", variable=self.snapshots_var,
-                       command=self._save_home_snapshots, bg=GLASS, fg=GREY,
-                       activebackground=GLASS, activeforeground="#ffffff",
-                       selectcolor="#285a77", font=(FONT, 9), bd=0,
-                       highlightthickness=0).pack(anchor="w")
+        for label, variable, command in (
+            ("Отложенный запуск", self.delayed_launch_var, self._save_home_options),
+            ("Показывать снапшоты", self.snapshots_var, self._save_home_snapshots),
+        ):
+            option_row = tk.Frame(options, bg=GLASS)
+            option_row.pack(fill="x", pady=4)
+            tk.Label(option_row, text=label, bg=GLASS, fg=GREY,
+                     font=(FONT, 9)).pack(side="left")
+            Toggle(option_row, variable, cmd=command, bg=GLASS).pack(side="right")
 
         self.home_launch_btn = Btn(card, "ЗАПУСТИТЬ", self._home_launch,
                                    style="primary", bg=GLASS, h=47, size=13,
@@ -1040,7 +1095,7 @@ class App(tk.Tk):
             ("i", "Информация и аккаунты", lambda: self.show_page("more")),
             ("▰", "Папка Minecraft", lambda: open_folder(self.settings["root"])),
             ("↻", "Версии и загрузчики", lambda: self.show_page("versions")),
-            ("☰", "Меню и настройки", self._open_home_menu),
+            ("⚙", "Настройки", lambda: self.show_page("settings")),
         ]):
             btn = Btn(actions, symbol, command, style="ghost", bg=GLASS,
                       h=34, size=13, width=52)
@@ -1059,16 +1114,16 @@ class App(tk.Tk):
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Home.TCombobox", fieldbackground="#12334c",
-                        background="#1b4965", foreground=TEXT,
+        style.configure("Home.TCombobox", fieldbackground=FIELD,
+                        background=PANEL, foreground=TEXT,
                         arrowcolor=RED_HI, bordercolor=GLASS_EDGE,
-                        lightcolor=GLASS_EDGE, darkcolor="#0a253a",
-                        padding=6, font=(FONT, 9))
+                        lightcolor=GLASS_EDGE, darkcolor=BG,
+                        padding=7, font=(FONT, 9), relief="flat")
         style.map("Home.TCombobox",
-                  fieldbackground=[("readonly", "#12334c")],
+                  fieldbackground=[("readonly", FIELD)],
                   foreground=[("readonly", TEXT)],
-                  selectbackground=[("readonly", "#285a77")],
-                  selectforeground=[("readonly", "#ffffff")])
+                  selectbackground=[("readonly", RED_DARK)],
+                  selectforeground=[("readonly", TEXT)])
         box = ttk.Combobox(parent, textvariable=variable, values=values,
                            state="readonly", style="Home.TCombobox",
                            font=(FONT, 9))
@@ -2111,7 +2166,7 @@ class App(tk.Tk):
             title = f"Java {major}" if major else "версия неизвестна"
             suffix = " · подходит" if exact else (" · новее" if compatible else " · не подходит")
             tk.Label(r, text=title + suffix, bg=PANEL,
-                     fg=("#78d69b" if exact else (TEXT if compatible else "#ff6b74")),
+                     fg=("#d8dbe0" if exact else (TEXT if compatible else "#d0d4db")),
                      font=(FONT, 9, "bold"), width=25, anchor="w").pack(side="left")
             tk.Label(r, text=path, bg=PANEL, fg=GREY, font=(FONT, 8), anchor="w").pack(
                 side="left", fill="x", expand=True)
